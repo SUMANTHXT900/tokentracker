@@ -26,13 +26,17 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.ico"]
+    "icon": [
+      "icons/icon.ico"
+    ]
   },
   "plugins": {
     "updater": {
       "active": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgzOEVCMjM3NDMzOTA1M0YKUldRL0JUbERON0tPZzVEbThTeXJHL2ptM0U5a09iNXFSUy9mUURRa2syVjZpejZPR29zM1NOMTEK",
-      "endpoints": ["https://github.com/USER/tokentracker/releases/latest/download/latest.json"],
+      "endpoints": [
+        "https://github.com/SUMANTHXT900/tokentracker/releases/latest/download/latest.json"
+      ],
       "dialog": true,
       "windows": {
         "stableOnly": true
