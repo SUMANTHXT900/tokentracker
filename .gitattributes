@@ -1,0 +1,6 @@
+# Normalize line endings on commit; keep binaries untouched.
+* text=auto
+*.ico binary
+*.png binary
+*.icns binary
+*.key binary

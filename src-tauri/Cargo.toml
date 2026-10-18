@@ -1,0 +1,39 @@
+[package]
+name = "tokentracker"
+version = "0.1.0"
+edition = "2021"
+description = "tokentracker — local token usage tracker (Tauri 2 backend)"
+authors = ["tokentracker"]
+license = "MIT"
+repository = "https://github.com/USER/tokentracker"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# NOTE: In Tauri 2, notification/dialog/fs/updater are separate plugins
+# (dependencies below). `tauri` itself only exposes `tray-icon` here;
+# requesting the old Tauri v1 feature names on `tauri` breaks `cargo check`.
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-process = "2"
+tokio = { version = "1", features = ["full"] }
+dirs = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify = "6"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+tokscale-core = { git = "https://github.com/junhoyeo/tokscale.git", tag = "v4.19.1" }
+
+[features]
+default = []
+sqlite = ["rusqlite"]
+
+[lib]
+name = "tokentracker_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]

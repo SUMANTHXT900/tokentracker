@@ -1,0 +1,62 @@
+name: release
+
+# Stable-only releases. Tags like v1.2.3 trigger build + publish.
+# No beta/nightly channels (see ARCHITECTURE.md §4).
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Windows-only product: single runner, no matrix.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard updater config (no placeholders on tag builds)
+        shell: bash
+        run: |
+          PUBKEY=$(node -e "console.log(JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8')).plugins.updater.pubkey)")
+          ENDPOINT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8')).plugins.updater.endpoints[0])")
+          if [ "$PUBKEY" = "TAURI_UPDATER_PUBKEY" ]; then echo "updater pubkey placeholder — run keygen and update tauri.conf.json"; exit 1; fi
+          case "$ENDPOINT" in *USER/*) echo "updater endpoint still USER/ — run: npm run updater:endpoint -- <owner/repo>"; exit 1;; esac
+          echo "updater OK: $ENDPOINT"
+
+      # TODO: frontend worker owns package.json — keep in sync with node version here.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build + publish with tauri-action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # TODO(secrets): add TAURI_SIGNING_PRIVATE_KEY (repo Settings → Secrets → Actions)
+          # Generate via: tauri signer generate -w ~/.tauri/tokentracker.key
+          # Public key must match src-tauri/tauri.conf.json > plugins.updater.pubkey
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # TODO(secrets): add TAURI_SIGNING_PRIVATE_KEY_PASSWORD if the key has one.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "tokentracker ${{ github.ref_name }}"
+          releaseBody: "See CHANGELOG for details."
+          releaseDraft: false
+          prerelease: false
+
+      # tauri-action uploads bundles + generates latest.json for the updater.
+      # Updater payload is version+arch only (no telemetry) — see ARCHITECTURE.md §4.

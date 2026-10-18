@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TokenTracker — Local AI Coding Proxy Overview</title>
+<!-- Fonts: Plus Jakarta Sans & Inter -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Plus+Jakarta+Sans:wght@500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Google Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration Script -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "primary-fixed": "#d8e2ff",
+            "on-tertiary-fixed": "#002107",
+            "secondary-fixed": "#e3e2e7",
+            "surface-container-high": "#eae7ea",
+            "on-secondary-fixed": "#1a1b1f",
+            "inverse-on-surface": "#f3f0f2",
+            "surface-container-low": "#f6f3f5",
+            "on-secondary-container": "#626267",
+            "on-primary-fixed-variant": "#004493",
+            "on-background": "#1b1b1d",
+            "tertiary-container": "#008733",
+            "primary-container": "#0070eb",
+            "error": "#ba1a1a",
+            "tertiary": "#006b27",
+            "surface-container-lowest": "#ffffff",
+            "secondary": "#5d5e63",
+            "outline-variant": "#c1c6d7",
+            "surface-tint": "#005bc1",
+            "surface-dim": "#dcd9dc",
+            "on-surface-variant": "#414755",
+            "surface-variant": "#e4e2e4",
+            "on-surface": "#1b1b1d",
+            "tertiary-fixed-dim": "#53e16f",
+            "primary-fixed-dim": "#adc6ff",
+            "on-tertiary-container": "#f7fff2",
+            "surface-bright": "#fcf8fb",
+            "primary": "#0058bc",
+            "background": "#fcf8fb",
+            "secondary-container": "#e0dfe4",
+            "on-secondary-fixed-variant": "#46464b",
+            "on-primary-container": "#fefcff",
+            "on-error-container": "#93000a",
+            "inverse-surface": "#303032",
+            "on-primary-fixed": "#001a41",
+            "secondary-fixed-dim": "#c6c6cb",
+            "on-secondary": "#ffffff",
+            "surface-container": "#f0edef",
+            "on-tertiary-fixed-variant": "#00531c",
+            "outline": "#717786",
+            "on-primary": "#ffffff",
+            "on-error": "#ffffff",
+            "surface": "#fcf8fb",
+            "on-tertiary": "#ffffff",
+            "tertiary-fixed": "#72fe88",
+            "surface-container-highest": "#e4e2e4",
+            "inverse-primary": "#adc6ff",
+            "error-container": "#ffdad6"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-sm": "0.5rem",
+            "space-md": "0.75rem",
+            "space-lg": "1.25rem",
+            "gutter": "1.25rem",
+            "margin": "1.5rem",
+            "space-xs": "0.25rem",
+            "space-xl": "2rem"
+          },
+          "fontFamily": {
+            "label-md": ["Inter"],
+            "body-md": ["Inter"],
+            "metric-num-lg": ["Inter"],
+            "headline-md": ["Plus Jakarta Sans"],
+            "headline-sm": ["Plus Jakarta Sans"],
+            "body-sm": ["Inter"],
+            "metric-num-md": ["Inter"],
+            "display-lg": ["Plus Jakarta Sans"],
+            "body-lg": ["Inter"],
+            "headline-lg": ["Plus Jakarta Sans"],
+            "label-sm": ["Inter"]
+          },
+          "fontSize": {
+            "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "body-md": ["13px", { "lineHeight": "18px", "letterSpacing": "-0.005em", "fontWeight": "400" }],
+            "metric-num-lg": ["28px", { "lineHeight": "34px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+            "headline-md": ["20px", { "lineHeight": "26px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+            "headline-sm": ["16px", { "lineHeight": "22px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "metric-num-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0em", "fontWeight": "500" }],
+            "display-lg": ["32px", { "lineHeight": "38px", "letterSpacing": "-0.03em", "fontWeight": "700" }],
+            "body-lg": ["15px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "400" }],
+            "headline-lg": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.025em", "fontWeight": "600" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    /* macOS Crisp Rendering & Tabular Figures */
+    body {
+      font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum';
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    .apple-glass {
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(142, 142, 147, 0.25);
+      border-radius: 9999px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(142, 142, 147, 0.45);
+    }
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.95); }
+    }
+    .animate-pulse-subtle {
+      animation: pulse-subtle 2.5s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-[#FAFAFC] text-on-surface h-screen w-screen overflow-hidden flex flex-col select-none">
+<!-- macOS Top Window Chrome & Navigation Bar (Shared Component: TopNavBar) -->
+<header class="flex justify-between items-center w-full px-space-lg h-[52px] bg-surface border-b border-outline-variant/30 shrink-0 z-30">
+<!-- Left Region: Traffic Lights & Breadcrumbs & Search -->
+<div class="flex items-center gap-space-lg">
+<!-- Native macOS Traffic Light Controls -->
+<div aria-label="macOS Window Controls" class="flex items-center gap-2 pl-1 pr-3">
+<button class="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] hover:opacity-80 transition-opacity focus:outline-none" title="Close"></button>
+<button class="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] hover:opacity-80 transition-opacity focus:outline-none" title="Minimize"></button>
+<button class="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] hover:opacity-80 transition-opacity focus:outline-none" title="Zoom"></button>
+</div>
+<!-- App Title & Local Proxy Status -->
+<div class="flex items-center gap-2 border-l border-outline-variant/30 pl-4">
+<span class="text-headline-sm font-headline-sm font-semibold text-on-surface">TokenTracker</span>
+<span class="text-outline font-body-sm text-body-sm">/</span>
+<div class="flex items-center gap-1.5 bg-surface-container px-2 py-0.5 rounded-md border border-outline-variant/20">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-pulse"></span>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-medium">Local Proxy :4040</span>
+</div>
+</div>
+<!-- Compact Search Bar (⌘K) -->
+<div class="relative w-64 ml-2">
+<div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-outline">
+<span class="material-symbols-outlined text-[16px]">search</span>
+</div>
+<input class="w-full h-8 pl-8 pr-12 bg-surface-container-low text-body-sm font-body-sm text-on-surface placeholder:text-outline rounded-lg border border-outline-variant/30 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all" placeholder="Search sessions, models, commits..." type="text"/>
+<div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
+<kbd class="text-[10px] font-label-sm font-semibold text-outline bg-surface-container-lowest px-1.5 py-0.5 rounded border border-outline-variant/40 shadow-xs">⌘K</kbd>
+</div>
+</div>
+</div>
+<!-- Right Region: Segmented Timeframe, Actions & User Avatar -->
+<div class="flex items-center gap-space-md">
+<!-- Timeframe Segmented Control (Using Shared Component labels) -->
+<div class="flex items-center bg-surface-container-low p-0.5 rounded-lg border border-outline-variant/30">
+<button class="px-2.5 py-1 text-label-md font-label-md rounded text-on-surface-variant hover:text-on-surface transition-colors duration-150">All Models</button>
+<button class="px-2.5 py-1 text-label-md font-label-md rounded bg-surface-container-lowest text-primary font-semibold shadow-xs transition-colors duration-150">Past 30 Days</button>
+<button class="px-2.5 py-1 text-label-md font-label-md rounded text-on-surface-variant hover:text-on-surface transition-colors duration-150">Custom Range</button>
+</div>
+<!-- Secondary Filter Action -->
+<button class="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface border border-outline-variant/30 font-label-md text-label-md active:scale-[0.98] transition-transform duration-100 ease-out">
+<span class="material-symbols-outlined text-[15px] text-on-surface-variant">tune</span>
+<span>Filter</span>
+</button>
+<!-- Trailing Primary Action: Export -->
+<button class="flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-primary hover:bg-primary/95 text-on-primary font-label-md text-label-md font-medium shadow-sm active:scale-[0.98] transition-all duration-100 ease-out">
+<span class="material-symbols-outlined text-[15px]">ios_share</span>
+<span>Export</span>
+</button>
+<!-- Notification Bell -->
+<button class="relative p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors duration-150 active:scale-[0.98]">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error border-2 border-surface"></span>
+</button>
+<!-- Workspace Profile Avatar -->
+<div class="flex items-center pl-1 border-l border-outline-variant/30">
+<div class="w-7 h-7 rounded-full bg-primary-fixed text-on-primary-fixed flex items-center justify-center font-label-md text-[11px] font-bold ring-1 ring-primary/20 cursor-pointer hover:ring-2 hover:ring-primary/40 transition-all">
+          TT
+        </div>
+</div>
+</div>
+</header>
+<!-- Main View Container: SideBar + Scrollable Canvas -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Left macOS Sidebar (Shared Component: SideNavBar) -->
+<aside class="flex flex-col justify-between h-full w-64 p-space-md bg-surface-container-low border-r border-outline-variant/30 shrink-0">
+<!-- Top Group: App Branding & Navigation Links -->
+<div class="flex flex-col gap-space-lg">
+<!-- Brand Header Section -->
+<div class="flex items-center justify-between px-space-xs pt-1">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-gradient-to-br from-[#0070eb] to-[#004493] flex items-center justify-center shadow-xs text-white">
+<span class="material-symbols-outlined text-[20px]">memory</span>
+</div>
+<div>
+<div class="text-headline-sm font-headline-sm font-bold text-on-surface leading-tight">TokenTracker</div>
+<div class="text-[11px] font-label-sm text-outline">v1.4.2 • Apple Silicon</div>
+</div>
+</div>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-label-sm font-semibold bg-tertiary-container/10 text-tertiary border border-tertiary/20">Proxy Active</span>
+</div>
+<!-- Primary Navigation List (Exact from JSON: 8 Tabs) -->
+<nav aria-label="Sidebar Primary" class="flex flex-col gap-1">
+<!-- Overview (Active) -->
+<a class="flex items-center justify-between px-space-md py-1.5 rounded-lg bg-secondary-container text-primary font-label-md text-label-md transition-colors duration-150" href="#">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span>Overview</span>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+</a>
+<!-- Sessions -->
+<a class="flex items-center justify-between px-space-md py-1.5 rounded-lg text-secondary font-label-md text-label-md hover:bg-surface-container hover:text-on-surface transition-colors duration-150" href="#">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+<span>Sessions</span>
+</div>
+<span class="px-1.5 py-0.2 rounded-full text-[10px] font-label-sm bg-surface-container-highest text-on-surface-variant font-medium">14 active</span>
+</a>
+<!-- Projects -->
+<a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-secondary font-label-md text-label-md hover:bg-surface-container hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]">folder</span>
+<span>Projects</span>
+</a>
+<!-- Models -->
+<a class="flex items-center justify-between px-space-md py-1.5 rounded-lg text-secondary font-label-md text-label-md hover:bg-surface-container hover:text-on-surface transition-colors duration-150" href="#">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px]">memory</span>
+<span>Models</span>
+</div>
+<span class="px-1.5 py-0.2 rounded-full text-[10px] font-label-sm bg-surface-container-highest text-on-surface-variant font-medium">6 registered</span>
+</a>
+<!-- Calendar -->
+<a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-secondary font-label-md text-label-md hover:bg-surface-container hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]">calendar_today</span>
+<span>Calendar</span>
+</a>
+<!-- Focus -->
+<a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-secondary font-label-md text-label-md hover:bg-surface-container hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]">center_focus_strong</span>
+<span>Focus</span>
+</a>
+<!-- Share -->
+<a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-secondary font-label-md text-label-md hover:bg-surface-container hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]">ios_share</span>
+<span>Share</span>
+</a>
+<!-- Settings -->
+<a class="flex items-center gap-space-sm px-space-md py-1.5 rounded-lg text-secondary font-label-md text-label-md hover:bg-surface-container hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+</div>
+<!-- Bottom Pinned Telemetry Status Widget & Help (from JSON) -->
+<div class="flex flex-col gap-3 pt-4 border-t border-outline-variant/30">
+<!-- Live System Telemetry Card -->
+<div class="p-3 bg-surface-container-lowest rounded-xl border border-outline-variant/30 shadow-xs space-y-2">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-[#34C759] animate-pulse"></span>
+<span class="font-label-md text-[11px] font-semibold text-on-surface">Active • Port 4040</span>
+</div>
+<span class="text-[10px] font-label-sm text-[#007AFF] bg-[#007AFF]/10 px-1.5 py-0.5 rounded font-medium">1.2ms latency</span>
+</div>
+<div class="text-[11px] text-on-surface-variant leading-relaxed">
+<span class="font-medium text-on-surface">Intercepting:</span> Claude Code, Cursor, Aider
+          </div>
+<div class="flex items-center justify-between text-[10px] text-outline pt-1 border-t border-surface-container">
+<span>Memory footprint</span>
+<span class="font-medium tabular-nums text-on-surface-variant">18.4 MB RAM</span>
+</div>
+</div>
+<!-- Footer Navigation Items (Documentation, System Status) -->
+<div class="flex flex-col gap-0.5">
+<a class="flex items-center gap-2 px-2 py-1 rounded text-body-sm text-secondary hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px]">help</span>
+<span>Documentation</span>
+</a>
+<a class="flex items-center gap-2 px-2 py-1 rounded text-body-sm text-secondary hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px]">sensors</span>
+<span>System Status</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Dynamic Canvas (Bento-Grid High-Density UI) -->
+<main class="flex-1 overflow-y-auto custom-scroll p-space-lg space-y-space-lg bg-[#FAFAFC]">
+<!-- Workspace Page Title & Client Filter Pills Bar -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-1">
+<div>
+<h1 class="text-headline-lg font-headline-lg font-bold text-on-surface tracking-tight">Overview</h1>
+<p class="text-body-md font-body-md text-on-surface-variant mt-0.5">Local AI coding proxy telemetry across all active environments</p>
+</div>
+<!-- Filter Pill Carousel -->
+<div class="flex items-center gap-1.5 overflow-x-auto py-1 custom-scroll">
+<button class="px-3 py-1.5 rounded-full text-label-md font-label-md bg-on-surface text-surface-container-lowest shadow-xs whitespace-nowrap">
+            All Clients (Active)
+          </button>
+<button class="px-3 py-1.5 rounded-full text-label-md font-label-md bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/30 whitespace-nowrap transition-colors">
+            Claude 3.7 Sonnet
+          </button>
+<button class="px-3 py-1.5 rounded-full text-label-md font-label-md bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/30 whitespace-nowrap transition-colors">
+            Cursor
+          </button>
+<button class="px-3 py-1.5 rounded-full text-label-md font-label-md bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/30 whitespace-nowrap transition-colors">
+            Windsurf
+          </button>
+<button class="px-3 py-1.5 rounded-full text-label-md font-label-md bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/30 whitespace-nowrap transition-colors">
+            Aider
+          </button>
+<button class="px-3 py-1.5 rounded-full text-label-md font-label-md bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface border border-outline-variant/30 whitespace-nowrap transition-colors">
+            Copilot Workspace
+          </button>
+</div>
+</div>
+<!-- Top Metric Cards Grid (4 Apple-spec Cards) -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-lg">
+<!-- Tile 1: Hero Spend Tile -->
+<div class="bg-surface-container-lowest p-space-lg rounded-2xl border border-outline-variant/30 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)] flex flex-col justify-between hover:border-outline-variant/60 transition-all duration-200">
+<div class="space-y-1">
+<div class="flex items-center justify-between">
+<span class="text-label-md font-label-md text-on-surface-variant">Total Spend (Past 30 Days)</span>
+<div class="w-7 h-7 rounded-full bg-primary-fixed/40 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[17px]">attach_money</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2 pt-1">
+<span class="text-display-lg font-display-lg font-bold tracking-tight text-on-surface tabular-nums">$428.60</span>
+<span class="text-body-sm font-label-sm text-outline">USD</span>
+</div>
+</div>
+<div class="space-y-2 pt-3 border-t border-surface-container/60 mt-3">
+<div class="flex items-center justify-between text-[11px] font-label-sm">
+<span class="px-2 py-0.5 rounded-full bg-[#34C759]/12 text-[#34C759] font-semibold tabular-nums">+12.4% vs last cycle</span>
+<span class="text-outline tabular-nums">Cap: $600.00</span>
+</div>
+<!-- Monthly Soft Cap Progress Bar -->
+<div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-[#007AFF] rounded-full" style="width: 71.4%;"></div>
+</div>
+<div class="flex justify-between items-center text-[10px] text-outline pt-1 tabular-nums">
+<span>71.4% utilized</span>
+<span>$171.40 limit remaining</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Tile 2: Total Tokens -->
+<div class="bg-surface-container-lowest p-space-lg rounded-2xl border border-outline-variant/30 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)] flex flex-col justify-between hover:border-outline-variant/60 transition-all duration-200">
+<div class="space-y-1">
+<div class="flex items-center justify-between">
+<span class="text-label-md font-label-md text-on-surface-variant">Total Tokens</span>
+<div class="w-7 h-7 rounded-full bg-tertiary-container/10 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[17px]">data_usage</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2 pt-1">
+<span class="text-display-lg font-display-lg font-bold tracking-tight text-on-surface tabular-nums">34.8M</span>
+<span class="text-body-sm font-label-sm text-outline">aggregated stream</span>
+</div>
+</div>
+<div class="space-y-2 pt-3 border-t border-surface-container/60 mt-3">
+<div class="flex items-center justify-between text-body-sm tabular-nums">
+<div class="flex items-center gap-1.5 text-on-surface-variant text-[11px]">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span>In: 28.2M</span>
+</div>
+<div class="flex items-center gap-1.5 text-on-surface-variant text-[11px]">
+<span class="w-2 h-2 rounded-full bg-[#AF52DE]"></span>
+<span>Out: 6.6M</span>
+</div>
+</div>
+<div class="flex items-center justify-between text-[11px] font-label-sm bg-surface-container-low px-2 py-1 rounded-md">
+<span class="text-on-surface-variant">Cache Hit Rate</span>
+<span class="text-[#34C759] font-semibold tabular-nums">68.4% cached</span>
+</div>
+</div>
+</div>
+<!-- Tile 3: Sessions -->
+<div class="bg-surface-container-lowest p-space-lg rounded-2xl border border-outline-variant/30 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)] flex flex-col justify-between hover:border-outline-variant/60 transition-all duration-200">
+<div class="space-y-1">
+<div class="flex items-center justify-between">
+<span class="text-label-md font-label-md text-on-surface-variant">Agent Sessions</span>
+<div class="w-7 h-7 rounded-full bg-secondary-container/40 flex items-center justify-center text-on-surface">
+<span class="material-symbols-outlined text-[17px]">terminal</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2 pt-1">
+<span class="text-display-lg font-display-lg font-bold tracking-tight text-on-surface tabular-nums">182</span>
+<span class="text-body-sm font-label-sm text-outline">invocations</span>
+</div>
+</div>
+<div class="space-y-2 pt-3 border-t border-surface-container/60 mt-3">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-[11px] text-on-surface-variant">Avg / Session</span>
+<span class="text-[12px] font-semibold text-on-surface tabular-nums">191.2k tokens</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-[11px] text-on-surface-variant">Avg Cost / Turn</span>
+<span class="text-[12px] font-semibold text-on-surface tabular-nums">$2.35 USD</span>
+</div>
+</div>
+</div>
+<!-- Tile 4: Active Days & Streak -->
+<div class="bg-surface-container-lowest p-space-lg rounded-2xl border border-outline-variant/30 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)] flex flex-col justify-between hover:border-outline-variant/60 transition-all duration-200">
+<div class="space-y-1">
+<div class="flex items-center justify-between">
+<span class="text-label-md font-label-md text-on-surface-variant">Active Coding Days</span>
+<div class="w-7 h-7 rounded-full bg-error-container/40 flex items-center justify-center text-error">
+<span class="material-symbols-outlined text-[17px]">local_fire_department</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2 pt-1">
+<span class="text-display-lg font-display-lg font-bold tracking-tight text-on-surface tabular-nums">24 / 30</span>
+<span class="text-body-sm font-label-sm text-outline">80% uptime</span>
+</div>
+</div>
+<div class="space-y-2 pt-3 border-t border-surface-container/60 mt-3">
+<div class="flex items-center justify-between">
+<span class="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 font-semibold text-[11px] font-label-sm">
+                9 days in flow 🔥
+              </span>
+<span class="text-[11px] text-outline tabular-nums">Peak: May 24</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-orange-500 h-full rounded-full" style="width: 80%;"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Large Telemetry Chart Section -->
+<div class="bg-surface-container-lowest p-space-lg rounded-2xl border border-outline-variant/30 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)] space-y-4">
+<!-- Header Controls for Telemetry Chart -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-surface-container">
+<div>
+<h2 class="text-headline-md font-headline-md font-bold text-on-surface">Token Velocity &amp; Spend Trends</h2>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Telemetry log across all active local proxies (May 1 – May 30)</p>
+</div>
+<!-- Chart Controls: Mode Switcher & Legend -->
+<div class="flex flex-wrap items-center gap-4">
+<!-- Legend -->
+<div class="flex items-center gap-3 text-[11px] font-label-sm text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-[#007AFF]"></span>
+<span>Input Tokens</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-[#34C759]"></span>
+<span>Cached Tokens</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-[#AF52DE]"></span>
+<span>Output Tokens</span>
+</div>
+</div>
+<!-- Segmented Switcher -->
+<div class="flex items-center bg-surface-container-low p-0.5 rounded-lg border border-outline-variant/30">
+<button class="px-3 py-1 text-label-md font-label-md rounded bg-surface-container-lowest text-primary font-semibold shadow-xs">Tokens</button>
+<button class="px-3 py-1 text-label-md font-label-md rounded text-on-surface-variant hover:text-on-surface transition-colors">Spend ($)</button>
+<button class="px-3 py-1 text-label-md font-label-md rounded text-on-surface-variant hover:text-on-surface transition-colors">Messages / Prompts</button>
+</div>
+</div>
+</div>
+<!-- High-Fidelity SVG Interactive Chart Canvas -->
+<div class="relative w-full h-72 pt-4">
+<!-- Background Grid Lines -->
+<div class="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-outline font-label-sm tabular-nums">
+<div class="w-full border-b border-dashed border-outline-variant/20 flex justify-between">
+<span>2.5M tokens</span>
+<span class="text-outline/70">$32.00</span>
+</div>
+<div class="w-full border-b border-dashed border-outline-variant/20 flex justify-between">
+<span>2.0M tokens</span>
+<span class="text-outline/70">$25.00</span>
+</div>
+<div class="w-full border-b border-dashed border-outline-variant/20 flex justify-between">
+<span>1.5M tokens</span>
+<span class="text-outline/70">$18.50</span>
+</div>
+<div class="w-full border-b border-dashed border-outline-variant/20 flex justify-between">
+<span>1.0M tokens</span>
+<span class="text-outline/70">$12.00</span>
+</div>
+<div class="w-full border-b border-outline-variant/30 flex justify-between">
+<span>0M</span>
+<span class="text-outline/70">$0.00</span>
+</div>
+</div>
+<!-- SVG Chart Rendering Curves and Area Gradient -->
+<svg class="w-full h-full overflow-visible" preserveaspectratio="none" viewbox="0 0 1000 240">
+<defs>
+<!-- Primary Input Gradient -->
+<lineargradient id="gradientInput" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#007AFF" stop-opacity="0.28"></stop>
+<stop offset="100%" stop-color="#007AFF" stop-opacity="0.0"></stop>
+</lineargradient>
+<!-- Cached Green Gradient -->
+<lineargradient id="gradientCache" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#34C759" stop-opacity="0.22"></stop>
+<stop offset="100%" stop-color="#34C759" stop-opacity="0.0"></stop>
+</lineargradient>
+</defs>
+<!-- Cached Layer Area -->
+<path d="M 0,220 
+                     Q 80,210 160,180 
+                     T 320,170 
+                     T 480,130 
+                     T 640,150 
+                     T 800,70 
+                     T 920,110 
+                     L 1000,120 L 1000,240 L 0,240 Z" fill="url(#gradientCache)"></path>
+<!-- Input Tokens Smooth Area -->
+<path d="M 0,210 
+                     Q 70,190 140,150 
+                     T 280,120 
+                     T 420,140 
+                     T 560,95 
+                     T 700,110 
+                     T 800,30 
+                     T 920,85 
+                     L 1000,90 L 1000,240 L 0,240 Z" fill="url(#gradientInput)"></path>
+<!-- Output Tokens Line (Purple) -->
+<path d="M 0,230 Q 70,225 140,215 T 280,210 T 420,205 T 560,195 T 700,200 T 800,165 T 920,190 L 1000,185" fill="none" stroke="#AF52DE" stroke-linecap="round" stroke-width="2"></path>
+<!-- Cached Tokens Dotted Line (Green) -->
+<path d="M 0,220 Q 80,210 160,180 T 320,170 T 480,130 T 640,150 T 800,70 T 920,110 L 1000,120" fill="none" stroke="#34C759" stroke-dasharray="4 3" stroke-linecap="round" stroke-width="2"></path>
+<!-- Input Tokens Main Line (Blue) -->
+<path d="M 0,210 Q 70,190 140,150 T 280,120 T 420,140 T 560,95 T 700,110 T 800,30 T 920,85 L 1000,90" fill="none" stroke="#007AFF" stroke-linecap="round" stroke-width="2.5"></path>
+<!-- Peak Indicator Point (May 24) -->
+<circle class="cursor-pointer" cx="800" cy="30" fill="#007AFF" r="5" stroke="#FFFFFF" stroke-width="2.5"></circle>
+<line stroke="#007AFF" stroke-dasharray="3 3" stroke-width="1.5" x1="800" x2="800" y1="30" y2="240"></line>
+</svg>
+<!-- Interactive Hover Tooltip for Sprint Peak (May 24) -->
+<div class="absolute left-[72%] top-[12px] -translate-x-1/2 apple-glass bg-surface-container-lowest/95 border border-outline-variant/40 rounded-xl p-3 shadow-lg z-20 w-60 pointer-events-none">
+<div class="flex items-center justify-between pb-1.5 border-b border-surface-container">
+<span class="text-[11px] font-label-md font-bold text-on-surface">May 24 (Sprint Peak)</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary font-semibold">Max Flow</span>
+</div>
+<div class="space-y-1 pt-1.5 text-[11px]">
+<div class="flex justify-between items-center tabular-nums">
+<span class="text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-[#007AFF]"></span> Total Tokens:
+                </span>
+<span class="font-bold text-on-surface">2.18M</span>
+</div>
+<div class="flex justify-between items-center tabular-nums">
+<span class="text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-[#34C759]"></span> Daily Spend:
+                </span>
+<span class="font-semibold text-tertiary">$26.80 USD</span>
+</div>
+<div class="flex justify-between items-center text-[10px] text-outline pt-0.5">
+<span>Dominant Model:</span>
+<span class="text-on-surface font-medium truncate max-w-[110px]">Claude 3.7 (Cursor)</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Date Axis Labels -->
+<div class="flex justify-between text-[11px] font-label-sm text-outline tabular-nums pt-1 px-1">
+<span>May 1</span>
+<span>May 5</span>
+<span>May 10</span>
+<span>May 15</span>
+<span>May 20</span>
+<span class="text-primary font-bold">May 24</span>
+<span>May 27</span>
+<span>May 30</span>
+</div>
+</div>
+<!-- Bottom Split Layout: Top Models & Punchcard Intensity Heatmap -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-space-lg">
+<!-- Left Card: Top Models by Consumption -->
+<div class="bg-surface-container-lowest p-space-lg rounded-2xl border border-outline-variant/30 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)] flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between pb-3 border-b border-surface-container">
+<div>
+<h3 class="text-headline-sm font-headline-sm font-bold text-on-surface">Top Models by Consumption</h3>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Ranked by gross USD spend &amp; context throughput</p>
+</div>
+<button class="text-label-md font-label-md text-primary hover:underline flex items-center gap-0.5">
+<span>View Detailed Matrix</span>
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</button>
+</div>
+<!-- Model Bars Stack -->
+<div class="space-y-3.5 pt-4">
+<!-- Model 1: Claude 3.7 Sonnet (Thinking) -->
+<div class="space-y-1">
+<div class="flex items-center justify-between text-body-sm">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-[#D97706]"></span>
+<span class="font-semibold text-on-surface">Claude 3.7 Sonnet (Thinking)</span>
+<span class="text-[10px] text-outline bg-surface-container px-1.5 py-0.2 rounded">Cursor • Claude Code</span>
+</div>
+<div class="flex items-center gap-2 tabular-nums">
+<span class="font-bold text-on-surface">$284.10</span>
+<span class="text-[11px] text-outline">(21.4M tok)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
+<div class="bg-[#007AFF] h-full rounded-full transition-all duration-500" style="width: 66%;"></div>
+</div>
+</div>
+<!-- Model 2: Claude 3.5 Sonnet -->
+<div class="space-y-1">
+<div class="flex items-center justify-between text-body-sm">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-[#EA580C]"></span>
+<span class="font-semibold text-on-surface">Claude 3.5 Sonnet</span>
+<span class="text-[10px] text-outline bg-surface-container px-1.5 py-0.2 rounded">Claude Code CLI</span>
+</div>
+<div class="flex items-center gap-2 tabular-nums">
+<span class="font-bold text-on-surface">$86.20</span>
+<span class="text-[11px] text-outline">(7.8M tok)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
+<div class="bg-[#007AFF]/80 h-full rounded-full transition-all duration-500" style="width: 20%;"></div>
+</div>
+</div>
+<!-- Model 3: GPT-4o -->
+<div class="space-y-1">
+<div class="flex items-center justify-between text-body-sm">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-[#10A37F]"></span>
+<span class="font-semibold text-on-surface">GPT-4o</span>
+<span class="text-[10px] text-outline bg-surface-container px-1.5 py-0.2 rounded">Cursor IDE Copilot</span>
+</div>
+<div class="flex items-center gap-2 tabular-nums">
+<span class="font-bold text-on-surface">$38.90</span>
+<span class="text-[11px] text-outline">(3.9M tok)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
+<div class="bg-[#007AFF]/60 h-full rounded-full transition-all duration-500" style="width: 9%;"></div>
+</div>
+</div>
+<!-- Model 4: DeepSeek R1 -->
+<div class="space-y-1">
+<div class="flex items-center justify-between text-body-sm">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-[#4F46E5]"></span>
+<span class="font-semibold text-on-surface">DeepSeek R1</span>
+<span class="text-[10px] text-outline bg-surface-container px-1.5 py-0.2 rounded">Aider CLI</span>
+</div>
+<div class="flex items-center gap-2 tabular-nums">
+<span class="font-bold text-on-surface">$14.40</span>
+<span class="text-[11px] text-outline">(1.4M tok)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
+<div class="bg-[#007AFF]/40 h-full rounded-full transition-all duration-500" style="width: 4%;"></div>
+</div>
+</div>
+<!-- Model 5: Gemini 2.0 Flash -->
+<div class="space-y-1">
+<div class="flex items-center justify-between text-body-sm">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-[#2563EB]"></span>
+<span class="font-semibold text-on-surface">Gemini 2.0 Flash</span>
+<span class="text-[10px] text-outline bg-surface-container px-1.5 py-0.2 rounded">Custom Scripts</span>
+</div>
+<div class="flex items-center gap-2 tabular-nums">
+<span class="font-bold text-on-surface">$5.00</span>
+<span class="text-[11px] text-outline">(0.3M tok)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-2 rounded-full overflow-hidden">
+<div class="bg-[#007AFF]/25 h-full rounded-full transition-all duration-500" style="width: 1%;"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Micro Status Bar -->
+<div class="pt-4 border-t border-surface-container mt-4 flex items-center justify-between text-[11px] text-outline">
+<span>Provider pricing synced 8 mins ago</span>
+<span class="text-primary font-medium">Automatic cache discounting applied</span>
+</div>
+</div>
+<!-- Right Card: Activity Intensity Heatmap (30-day Punchcard) -->
+<div class="bg-surface-container-lowest p-space-lg rounded-2xl border border-outline-variant/30 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)] flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between pb-3 border-b border-surface-container">
+<div>
+<h3 class="text-headline-sm font-headline-sm font-bold text-on-surface">Activity Intensity Heatmap</h3>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Daily agent velocity by active coding blocks</p>
+</div>
+<div class="flex items-center gap-1.5 text-[10px] font-label-sm text-outline">
+<span>Less</span>
+<span class="w-2.5 h-2.5 rounded bg-surface-container"></span>
+<span class="w-2.5 h-2.5 rounded bg-[#007AFF]/25"></span>
+<span class="w-2.5 h-2.5 rounded bg-[#007AFF]/60"></span>
+<span class="w-2.5 h-2.5 rounded bg-[#007AFF]"></span>
+<span>More</span>
+</div>
+</div>
+<!-- Heatmap Grid Matrix (7 days x 5 weeks blocks) -->
+<div class="pt-4 space-y-2">
+<div class="grid grid-cols-7 gap-2 text-center text-[10px] font-label-sm text-outline pb-1">
+<span>Mon</span>
+<span>Tue</span>
+<span>Wed</span>
+<span>Thu</span>
+<span>Fri</span>
+<span>Sat</span>
+<span>Sun</span>
+</div>
+<!-- Week Rows -->
+<div class="grid grid-cols-7 gap-2">
+<!-- Week 1 -->
+<div class="h-8 rounded-lg bg-surface-container hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-outline">1</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/25 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-on-surface">2</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/60 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-medium">3</div>
+<div class="h-8 rounded-lg bg-[#007AFF] hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-bold">4</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/60 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-medium">5</div>
+<div class="h-8 rounded-lg bg-surface-container hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-outline">6</div>
+<div class="h-8 rounded-lg bg-surface-container hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-outline">7</div>
+<!-- Week 2 -->
+<div class="h-8 rounded-lg bg-[#007AFF]/30 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-on-surface">8</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/70 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-medium">9</div>
+<div class="h-8 rounded-lg bg-[#007AFF] hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-bold">10</div>
+<div class="h-8 rounded-lg bg-[#007AFF] hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-bold">11</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/60 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-medium">12</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/20 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-on-surface">13</div>
+<div class="h-8 rounded-lg bg-surface-container hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-outline">14</div>
+<!-- Week 3 -->
+<div class="h-8 rounded-lg bg-[#007AFF]/50 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-on-surface font-medium">15</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/80 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-semibold">16</div>
+<div class="h-8 rounded-lg bg-[#007AFF] hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-bold">17</div>
+<div class="h-8 rounded-lg bg-[#007AFF] hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-bold">18</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/90 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-bold">19</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/25 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-on-surface">20</div>
+<div class="h-8 rounded-lg bg-surface-container hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-outline">21</div>
+<!-- Week 4 (Includes Sprint Peak Day 24) -->
+<div class="h-8 rounded-lg bg-[#007AFF]/60 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-medium">22</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/90 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-bold">23</div>
+<div class="h-8 rounded-lg bg-[#0070eb] ring-2 ring-primary ring-offset-1 hover:ring-primary transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-black shadow-xs" title="Peak Day: 2.18M tokens">24</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/80 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-white font-semibold">25</div>
+<div class="h-8 rounded-lg bg-[#007AFF]/50 hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-on-surface font-medium">26</div>
+<div class="h-8 rounded-lg bg-surface-container hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-outline">27</div>
+<div class="h-8 rounded-lg bg-surface-container hover:ring-2 hover:ring-primary/40 transition-all flex items-center justify-center text-[11px] tabular-nums text-outline">28</div>
+</div>
+</div>
+</div>
+<!-- Bottom Telemetry Metrics -->
+<div class="pt-4 border-t border-surface-container mt-4 grid grid-cols-2 gap-4">
+<div class="bg-surface-container-low p-2.5 rounded-xl border border-outline-variant/20">
+<span class="text-[10px] text-outline font-label-sm block">Peak Coding Hours</span>
+<span class="text-body-md font-semibold text-on-surface tabular-nums">14:00 – 18:00 PST</span>
+</div>
+<div class="bg-surface-container-low p-2.5 rounded-xl border border-outline-variant/20">
+<span class="text-[10px] text-outline font-label-sm block">Cost Efficiency</span>
+<span class="text-body-md font-semibold text-[#34C759] tabular-nums">Avg Save: $1.84/day</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

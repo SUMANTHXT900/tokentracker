@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Cupertino Telemetry · LIGHT — canvas, cards, containers, ink, hairlines, single blue accent. */
+  --color-canvas: #faf9fe;
+  --color-card: #ffffff;
+  --color-tray: #f4f3f8;
+  --color-tray-deep: #eeedf3;
+  --color-ink: #1a1b1f;
+  --color-ink-2: #414755;
+  --color-ink-3: #5f6573;
+  --color-hairline: #e5e5ea;
+  --color-primary: #0058bc;
+  --color-accent: #0064cb;
+  --color-success: #006b27;
+  --color-success-dot: #159947;
+
+  /* M3-alias tokens used by the tables regions (same Cupertino values). */
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f4f3f8;
+  --color-surface-container-high: #eeedf3;
+  --color-surface-container-highest: #e9e7ed;
+  --color-on-surface: #1a1b1f;
+  --color-on-surface-variant: #414755;
+  --color-outline: #5f6573;
+  --color-outline-variant: #e5e5ea;
+
+  /* Spring-physics motion tokens — never linear / ease-in-out. */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-snappy: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  min-height: 100dvh;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #faf9fe;
+  background-image:
+    radial-gradient(1000px 480px at 50% -8%, rgba(0, 112, 235, 0.06), transparent 65%),
+    radial-gradient(720px 460px at 88% 108%, rgba(0, 88, 188, 0.04), transparent 60%);
+  background-attachment: fixed;
+  color: #1a1b1f;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
+  overflow-x: hidden;
+}
+
+/* Ultra-subtle tactile grain — pointer-events-none, above content, never scrolling. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0.018;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Tabular numbers for all telemetry & metrics */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "zero";
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Light instrument surfaces — pure-white cards, hairline borders, soft diffused lift. */
+.cockpit-panel {
+  background: #ffffff;
+  border: 1px solid #e5e5ea;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
+    0 1px 3px rgba(16, 24, 40, 0.04),
+    0 12px 32px -16px rgba(16, 24, 40, 0.12);
+}
+
+.cockpit-card {
+  background: #ffffff;
+  border: 1px solid #e5e5ea;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 8px 24px -14px rgba(16, 24, 40, 0.1);
+}
+
+/* Thin scrollbars — light theme, thumb kept visible on white/tray. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c1c1cb transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #c1c1cb;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #aeaebc;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: rgba(0, 100, 203, 0.22);
+  color: #1a1b1f;
+}
+
+/* Skeleton shimmer — spring bezier sweep, transform-safe */
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, rgba(238, 237, 243, 0.95) 25%, rgba(214, 213, 222, 0.95) 37%, rgba(238, 237, 243, 0.95) 63%);
+  background-size: 800px 100%;
+  animation: shimmer 1.6s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+/* Focus rings — visible blue outline + halo on every interactive element */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #0064cb;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(0, 100, 203, 0.22);
+}
+
+/* Ambient live dot — slow opacity breath, never a flash or ping. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.breathe {
+  animation: breathe 2.8s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+/* Reserved one-line slot for ambient sync microcopy — no layout shift. */
+.sync-line {
+  min-height: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .breathe,
+  .skeleton {
+    animation: none;
+  }
+}

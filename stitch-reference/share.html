@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>TokenTracker — Share Studio</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration strictly matching brand anchors -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container-high": "#e9e7ed",
+            "surface-tint": "#005bc1",
+            "on-tertiary-fixed-variant": "#00531c",
+            "error": "#ba1a1a",
+            "surface-dim": "#dad9df",
+            "on-primary-fixed-variant": "#004493",
+            "on-background": "#1a1b1f",
+            "inverse-surface": "#2f3034",
+            "on-primary-fixed": "#001a41",
+            "on-primary": "#ffffff",
+            "surface-container-lowest": "#ffffff",
+            "surface-container": "#eeedf3",
+            "primary-container": "#0070eb",
+            "outline-variant": "#c1c6d7",
+            "primary-fixed-dim": "#adc6ff",
+            "outline": "#717786",
+            "on-tertiary": "#ffffff",
+            "on-secondary-container": "#fffbff",
+            "on-error": "#ffffff",
+            "tertiary-fixed-dim": "#53e16f",
+            "tertiary-container": "#008733",
+            "secondary": "#4c4aca",
+            "surface-container-low": "#f4f3f8",
+            "on-surface": "#1a1b1f",
+            "primary-fixed": "#d8e2ff",
+            "on-tertiary-fixed": "#002107",
+            "on-secondary": "#ffffff",
+            "on-primary-container": "#fefcff",
+            "inverse-on-surface": "#f1f0f5",
+            "surface-variant": "#e3e2e7",
+            "on-secondary-fixed": "#0c006a",
+            "surface-container-highest": "#e3e2e7",
+            "secondary-fixed-dim": "#c2c1ff",
+            "primary": "#0058bc",
+            "on-secondary-fixed-variant": "#3631b4",
+            "on-tertiary-container": "#f7fff2",
+            "secondary-fixed": "#e2dfff",
+            "background": "#faf9fe",
+            "error-container": "#ffdad6",
+            "tertiary": "#006b27",
+            "inverse-primary": "#adc6ff",
+            "surface": "#faf9fe",
+            "secondary-container": "#6664e4",
+            "tertiary-fixed": "#72fe88",
+            "on-surface-variant": "#414755",
+            "on-error-container": "#93000a",
+            "surface-bright": "#faf9fe"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "gutter": "1rem",
+            "space-lg": "1.5rem",
+            "gutter-desktop": "1.5rem",
+            "margin": "1rem",
+            "space-xs": "0.25rem",
+            "margin-desktop": "2rem",
+            "space-xl": "2rem",
+            "space-md": "1rem",
+            "space-sm": "0.5rem"
+          },
+          "fontFamily": {
+            "headline-lg": ["Plus Jakarta Sans", "sans-serif"],
+            "body-md": ["Plus Jakarta Sans", "sans-serif"],
+            "display-lg": ["Plus Jakarta Sans", "sans-serif"],
+            "headline-sm": ["Plus Jakarta Sans", "sans-serif"],
+            "stat-counter": ["Plus Jakarta Sans", "sans-serif"],
+            "body-lg": ["Plus Jakarta Sans", "sans-serif"],
+            "label-mono": ["JetBrains Mono", "monospace"],
+            "label-ui": ["Plus Jakarta Sans", "sans-serif"],
+            "label-mono-sm": ["JetBrains Mono", "monospace"]
+          },
+          "fontSize": {
+            "headline-lg": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.025em", "fontWeight": "600" }],
+            "body-md": ["13px", { "lineHeight": "18px", "letterSpacing": "-0.005em", "fontWeight": "400" }],
+            "display-lg": ["32px", { "lineHeight": "38px", "letterSpacing": "-0.03em", "fontWeight": "700" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "stat-counter": ["28px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "body-lg": ["15px", { "lineHeight": "22px", "letterSpacing": "-0.01em", "fontWeight": "400" }],
+            "label-mono": ["12px", { "lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "500" }],
+            "label-ui": ["12px", { "lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "600" }],
+            "label-mono-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "400" }]
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #E5E5EA;
+      border-radius: 4px;
+    }
+    @keyframes drawChart {
+      0% { stroke-dashoffset: 1000; }
+      100% { stroke-dashoffset: 0; }
+    }
+    .animate-chart {
+      stroke-dasharray: 1000;
+      stroke-dashoffset: 1000;
+      animation: drawChart 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .checker-pattern {
+      background-size: 16px 16px;
+      background-image: linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+                        linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+    }
+    .switch-checkbox:checked + .switch-label {
+      background-color: #0070eb;
+    }
+    .switch-checkbox:checked + .switch-label .switch-handle {
+      transform: translateX(14px);
+    }
+  </style>
+</head>
+<body class="h-full bg-surface-container-low text-on-surface antialiased flex items-center justify-center p-3 select-none">
+<!-- macOS Desktop Application Window Frame (1440px target container) -->
+<div class="w-full max-w-[1440px] h-[920px] bg-surface-container-lowest rounded-xl shadow-2xl border border-outline-variant/30 flex flex-col overflow-hidden">
+<!-- Top macOS Unified Window Bar & Shared TopNavBar Blueprint -->
+<header class="flex justify-between items-center w-full px-4 h-12 sticky top-0 z-40 bg-surface-container-lowest/80 border-b border-outline-variant/30 backdrop-blur-md">
+<!-- Traffic Light Controls & Title Breadcrumb -->
+<div class="flex items-center gap-4">
+<!-- macOS Window Dot Affordance -->
+<div class="flex items-center gap-2 pr-2">
+<div class="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] hover:opacity-85 cursor-pointer shadow-xs"></div>
+<div class="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] hover:opacity-85 cursor-pointer shadow-xs"></div>
+<div class="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] hover:opacity-85 cursor-pointer shadow-xs"></div>
+</div>
+<div class="h-4 w-px bg-outline-variant/40"></div>
+<!-- Breadcrumb / Brand Anchor Title -->
+<div class="flex items-center gap-2">
+<span class="font-headline-sm text-headline-sm font-semibold text-on-surface tracking-tight">TokenTracker</span>
+<span class="text-on-surface-variant font-body-md text-body-md">/</span>
+<span class="font-label-ui text-label-ui font-semibold text-primary px-2 py-0.5 bg-primary-fixed/30 rounded">Share Studio</span>
+</div>
+</div>
+<!-- Segmented Navigation Links (Derived from TopNavBar Blueprint) -->
+<div class="hidden md:flex items-center gap-6">
+<a class="font-label-ui text-label-ui font-medium text-on-surface-variant hover:text-on-surface transition-colors pb-1" href="#">Studio Canvas</a>
+<a class="font-label-ui text-label-ui font-semibold text-primary border-b-2 border-primary pb-1" href="#">Presets</a>
+<a class="font-label-ui text-label-ui font-medium text-on-surface-variant hover:text-on-surface transition-colors pb-1" href="#">Audit Logs</a>
+</div>
+<!-- Trailing Action Controls & Resolution Toolbar -->
+<div class="flex items-center gap-3">
+<!-- Resolution Segmented Control -->
+<div class="flex items-center bg-surface-container-low p-0.5 rounded-lg border border-outline-variant/30 text-on-surface-variant font-label-mono-sm text-label-mono-sm">
+<button class="px-2 py-1 rounded font-medium text-on-surface-variant hover:text-on-surface">1x</button>
+<button class="px-2 py-1 rounded-md bg-surface-container-lowest text-primary font-semibold shadow-xs">2x Retina</button>
+<button class="px-2 py-1 rounded font-medium text-on-surface-variant hover:text-on-surface">4x Print</button>
+</div>
+<!-- Trailing Icon Actions from Blueprint -->
+<div class="flex items-center gap-1 border-l border-outline-variant/30 pl-2">
+<button class="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors" title="Tune">
+<span class="material-symbols-outlined text-[18px]">tune</span>
+</button>
+<button class="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors" title="History">
+<span class="material-symbols-outlined text-[18px]">history</span>
+</button>
+<button class="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors" title="Fullscreen">
+<span class="material-symbols-outlined text-[18px]">fullscreen</span>
+</button>
+</div>
+<!-- Primary and Secondary Export Actions -->
+<div class="flex items-center gap-2 pl-2">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant/40 bg-surface-container-lowest hover:bg-surface-container-low text-on-surface font-label-ui text-label-ui font-medium transition-all active:scale-[0.98]">
+<span class="material-symbols-outlined text-[16px]">file_download</span>
+<span>Export Bundle</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-container text-on-primary font-label-ui text-label-ui font-semibold shadow-xs hover:bg-primary transition-all active:scale-[0.98]" id="copyBtn">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+<span>Copy High-Res PNG</span>
+<kbd class="text-[10px] font-label-mono bg-white/20 px-1 py-0.5 rounded ml-0.5 text-on-primary">⌘C</kbd>
+</button>
+</div>
+</div>
+</header>
+<!-- Main Workspace Frame (Sidebar + Control Rail + Preview Canvas) -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Left Utility Navigation SideBar (Shared Component Anchor) -->
+<aside class="w-64 h-full p-4 flex flex-col justify-between shrink-0 border-r border-outline-variant/30 bg-surface-container-lowest">
+<!-- Top Section: Brand + Navigation -->
+<div class="space-y-6">
+<!-- Logo & Workspace Subtext -->
+<div class="flex items-center gap-3 px-2 pt-1">
+<div class="w-8 h-8 rounded-lg bg-primary-container/10 border border-primary/20 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]">dataset</span>
+</div>
+<div>
+<div class="font-headline-sm text-headline-sm font-semibold text-on-surface tracking-tight">TokenTracker</div>
+<div class="font-label-mono-sm text-label-mono-sm text-on-surface-variant">Observability v2.4</div>
+</div>
+</div>
+<!-- Navigation Links Group -->
+<nav class="space-y-1">
+<!-- Dashboard -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-label-ui text-label-ui font-medium hover:bg-surface-container-low hover:text-on-surface transition-colors duration-150 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+<span>Dashboard</span>
+</a>
+<!-- Models -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-label-ui text-label-ui font-medium hover:bg-surface-container-low hover:text-on-surface transition-colors duration-150 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-[18px]">dataset</span>
+<span>Models</span>
+</a>
+<!-- Telemetry -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-label-ui text-label-ui font-medium hover:bg-surface-container-low hover:text-on-surface transition-colors duration-150 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-[18px]">monitoring</span>
+<span>Telemetry</span>
+</a>
+<!-- Share Studio (ACTIVE TAB based on intent mapping) -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-surface-container-high text-primary font-label-ui text-label-ui font-semibold shadow-xs" href="#">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">share</span>
+<span>Share Studio</span>
+</a>
+<!-- Settings -->
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant font-label-ui text-label-ui font-medium hover:bg-surface-container-low hover:text-on-surface transition-colors duration-150 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+</div>
+<!-- Middle CTA / Quick Action -->
+<div class="my-4 px-2">
+<button class="w-full py-2 px-3 rounded-lg border border-outline-variant/40 bg-surface-container-low hover:bg-surface-container-high text-on-surface font-label-ui text-label-ui font-medium flex items-center justify-center gap-2 transition-colors">
+<span class="material-symbols-outlined text-[16px]">file_upload</span>
+<span>Export Telemetry</span>
+</button>
+</div>
+<!-- Bottom Footer Navigation & Workspace Quota Tile -->
+<div class="space-y-4 pt-3 border-t border-outline-variant/30">
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-on-surface-variant font-label-ui text-label-ui font-medium hover:bg-surface-container-low hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]">help</span>
+<span>Documentation</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-on-surface-variant font-label-ui text-label-ui font-medium hover:bg-surface-container-low hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined text-[18px]">sensors</span>
+<span>System Status</span>
+<span class="ml-auto w-2 h-2 rounded-full bg-tertiary-container animate-pulse"></span>
+</a>
+</div>
+<!-- Workspace Quota Capsule -->
+<div class="p-3 bg-surface-container-low rounded-xl border border-outline-variant/30">
+<div class="flex items-center justify-between font-label-ui text-label-ui mb-1.5">
+<span class="text-on-surface-variant">Quota Usage</span>
+<span class="font-label-mono text-label-mono font-semibold text-on-surface">84%</span>
+</div>
+<div class="w-full bg-surface-container-high rounded-full h-1.5 overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 84%"></div>
+</div>
+<div class="mt-2 flex items-center justify-between font-label-mono-sm text-label-mono-sm text-on-surface-variant">
+<span>prod-cluster-01</span>
+<span class="text-tertiary font-medium">Healthy</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Left Control Rail (Studio Inspector & Customization Controls) -->
+<section class="w-96 max-w-sm shrink-0 border-r border-outline-variant/30 bg-surface-container-lowest p-6 space-y-6 overflow-y-auto custom-scroll">
+<!-- Panel Title -->
+<div class="flex items-center justify-between pb-3 border-b border-outline-variant/30">
+<div>
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Card Styler</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Configure preview snapshot parameters</p>
+</div>
+<span class="font-label-mono-sm text-label-mono-sm px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-medium">v2.4 EXPORT</span>
+</div>
+<!-- Aspect Ratio Selection -->
+<div class="space-y-2">
+<label class="font-label-ui text-label-ui text-on-surface flex items-center justify-between">
+<span>Aspect Ratio</span>
+<span class="font-label-mono-sm text-label-mono-sm text-on-surface-variant">1:1 Square</span>
+</label>
+<div class="grid grid-cols-3 gap-1.5 p-1 bg-surface-container-low rounded-xl border border-outline-variant/30">
+<button class="py-1.5 text-center rounded-lg bg-surface-container-lowest font-label-ui text-label-ui font-semibold text-primary shadow-xs border border-outline-variant/20">
+              1:1 Square
+            </button>
+<button class="py-1.5 text-center rounded-lg font-label-ui text-label-ui font-medium text-on-surface-variant hover:text-on-surface">
+              9:16 Story
+            </button>
+<button class="py-1.5 text-center rounded-lg font-label-ui text-label-ui font-medium text-on-surface-variant hover:text-on-surface">
+              16:9 Wide
+            </button>
+</div>
+</div>
+<!-- Color Theme Presets -->
+<div class="space-y-2.5">
+<label class="font-label-ui text-label-ui text-on-surface">Visual Appearance</label>
+<div class="grid grid-cols-2 gap-2">
+<!-- Cupertino Light (Active) -->
+<button class="flex items-center gap-2.5 p-2 rounded-xl border-2 border-primary bg-surface-container-lowest shadow-xs text-left">
+<div class="w-5 h-5 rounded-full bg-white border border-[#D1D1D6] flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[14px]">check</span>
+</div>
+<span class="font-label-ui text-label-ui font-semibold text-on-surface">Cupertino Light</span>
+</button>
+<!-- Paper White -->
+<button class="flex items-center gap-2.5 p-2 rounded-xl border border-outline-variant/40 bg-surface-container-low hover:bg-surface-container-high text-left transition-colors">
+<div class="w-5 h-5 rounded-full bg-[#FAFAFC] border border-[#E5E5EA]"></div>
+<span class="font-label-ui text-label-ui font-medium text-on-surface-variant">Paper White</span>
+</button>
+<!-- Obsidian Frost -->
+<button class="flex items-center gap-2.5 p-2 rounded-xl border border-outline-variant/40 bg-surface-container-low hover:bg-surface-container-high text-left transition-colors">
+<div class="w-5 h-5 rounded-full bg-[#1C1C1E] border border-black"></div>
+<span class="font-label-ui text-label-ui font-medium text-on-surface-variant">Obsidian Dark</span>
+</button>
+<!-- Sunset Gradient -->
+<button class="flex items-center gap-2.5 p-2 rounded-xl border border-outline-variant/40 bg-surface-container-low hover:bg-surface-container-high text-left transition-colors">
+<div class="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-400 to-rose-400"></div>
+<span class="font-label-ui text-label-ui font-medium text-on-surface-variant">Sunset Glow</span>
+</button>
+</div>
+</div>
+<!-- Hero Metric Selector -->
+<div class="space-y-2">
+<label class="font-label-ui text-label-ui text-on-surface">Primary Hero Metric</label>
+<div class="flex flex-wrap gap-1.5">
+<button class="px-2.5 py-1 rounded-full bg-primary-container text-on-primary font-label-ui text-label-ui font-semibold shadow-xs">
+              Total Tokens
+            </button>
+<button class="px-2.5 py-1 rounded-full bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant font-label-ui text-label-ui font-medium border border-outline-variant/30">
+              Total Spend ($)
+            </button>
+<button class="px-2.5 py-1 rounded-full bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant font-label-ui text-label-ui font-medium border border-outline-variant/30">
+              Avg Latency
+            </button>
+<button class="px-2.5 py-1 rounded-full bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant font-label-ui text-label-ui font-medium border border-outline-variant/30">
+              Request Volume
+            </button>
+</div>
+</div>
+<!-- Creator Identity Input -->
+<div class="space-y-2">
+<label class="font-label-ui text-label-ui text-on-surface">Attribution &amp; Workspace Tag</label>
+<div class="flex items-center rounded-lg border border-outline-variant/40 bg-surface-container-low px-2.5 py-1.5 focus-within:border-primary focus-within:bg-white focus-within:ring-2 focus-within:ring-primary/20">
+<span class="font-label-mono text-label-mono text-on-surface-variant font-medium">@</span>
+<input class="w-full bg-transparent border-0 p-0 pl-1 text-on-surface font-label-mono text-label-mono focus:ring-0" type="text" value="alex_dev"/>
+<span class="font-label-mono-sm text-label-mono-sm px-1.5 py-0.5 rounded bg-surface-container-high text-tertiary font-semibold">VERIFIED</span>
+</div>
+</div>
+<!-- Layer Toggles (Cupertino Switches) -->
+<div class="space-y-3 pt-2 border-t border-outline-variant/30">
+<div class="flex items-center justify-between">
+<span class="font-label-ui text-label-ui text-on-surface">Activity Sparkline</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only switch-checkbox" type="checkbox"/>
+<div class="switch-label w-9 h-5 bg-surface-container-high rounded-full transition-colors relative">
+<div class="switch-handle absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-xs"></div>
+</div>
+</label>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-ui text-label-ui text-on-surface">Top Model Distribution</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only switch-checkbox" type="checkbox"/>
+<div class="switch-label w-9 h-5 bg-surface-container-high rounded-full transition-colors relative">
+<div class="switch-handle absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-xs"></div>
+</div>
+</label>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-ui text-label-ui text-on-surface">Carbon &amp; Efficiency Index</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only switch-checkbox" type="checkbox"/>
+<div class="switch-label w-9 h-5 bg-surface-container-high rounded-full transition-colors relative">
+<div class="switch-handle absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-xs"></div>
+</div>
+</label>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-label-ui text-label-ui text-on-surface">Cryptographic Watermark</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only switch-checkbox" type="checkbox"/>
+<div class="switch-label w-9 h-5 bg-surface-container-high rounded-full transition-colors relative">
+<div class="switch-handle absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-xs"></div>
+</div>
+</label>
+</div>
+</div>
+<!-- Social Share Quick Links -->
+<div class="pt-3 border-t border-outline-variant/30 space-y-2">
+<label class="font-label-mono-sm text-label-mono-sm uppercase tracking-wider text-on-surface-variant font-semibold">Share Broadcast</label>
+<div class="grid grid-cols-2 gap-2">
+<button class="py-2 px-3 rounded-lg border border-outline-variant/40 hover:bg-surface-container-low font-label-ui text-label-ui font-medium flex items-center justify-center gap-2 text-on-surface transition-colors">
+<svg class="w-3.5 h-3.5 fill-current" viewbox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
+<span>Share to X</span>
+</button>
+<button class="py-2 px-3 rounded-lg border border-outline-variant/40 hover:bg-surface-container-low font-label-ui text-label-ui font-medium flex items-center justify-center gap-2 text-on-surface transition-colors">
+<svg class="w-3.5 h-3.5 fill-current text-[#0A66C2]" viewbox="0 0 24 24"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 10.9v8.37H9.2V10.9H6.46M7.83 6.26a1.64 1.64 0 1 0 0 3.28 1.64 1.64 0 0 0 0-3.28z"></path></svg>
+<span>LinkedIn</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Main Hero Preview Canvas -->
+<main class="flex-1 bg-surface p-8 flex flex-col items-center justify-center relative overflow-hidden checker-pattern">
+<!-- Canvas Floating Top Toolbar -->
+<div class="absolute top-4 inset-x-8 flex items-center justify-between z-20 pointer-events-none">
+<!-- Canvas Scale & Canvas Mode Pill -->
+<div class="pointer-events-auto flex items-center gap-2 bg-surface-container-lowest/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-outline-variant/40 shadow-xs">
+<span class="font-label-mono-sm text-label-mono-sm text-on-surface-variant font-medium">Stage: 100%</span>
+<div class="w-px h-3 bg-outline-variant/40"></div>
+<button class="text-on-surface-variant hover:text-on-surface text-[11px] font-label-ui font-semibold">Fit Canvas</button>
+<div class="w-px h-3 bg-outline-variant/40"></div>
+<button class="w-5 h-5 rounded flex items-center justify-center text-primary" title="Toggle Grid">
+<span class="material-symbols-outlined text-[14px]">grid_view</span>
+</button>
+</div>
+<!-- Color Mode / Shadow Indicator -->
+<div class="pointer-events-auto flex items-center gap-2 bg-surface-container-lowest/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-outline-variant/40 shadow-xs">
+<span class="material-symbols-outlined text-tertiary text-[14px]">verified</span>
+<span class="font-label-mono-sm text-label-mono-sm text-on-surface font-medium">Apple HIG Acrylic 24px Elevation</span>
+</div>
+</div>
+<!-- ============================================== -->
+<!-- CENTERPIECE HERO TELEMETRY CARD (THE EXPORTER) -->
+<!-- ============================================== -->
+<article class="w-[580px] bg-white rounded-[24px] border border-[#E5E5EA] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.03)] hover:-translate-y-1 transition-all duration-300 ease-out relative group">
+<!-- Subtle Card Header Bar -->
+<div class="flex items-center justify-between pb-6 border-b border-[#F2F2F7]">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-[#0070eb] to-[#0058bc] flex items-center justify-center text-white shadow-sm">
+<span class="material-symbols-outlined text-[22px]">dataset</span>
+</div>
+<div>
+<div class="font-label-mono-sm text-label-mono-sm text-[#8E8E93] tracking-widest font-semibold uppercase">AI Inference Telemetry</div>
+<div class="font-label-ui text-label-ui font-bold text-[#1C1C1E] flex items-center gap-1.5">
+<span>TokenTracker Workspace</span>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+</div>
+</div>
+</div>
+<!-- Date & Attribution Tag -->
+<div class="text-right">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#1C1C1E] font-label-mono-sm text-label-mono-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+<span>OCT 2024 • 30-DAY REPORT</span>
+</div>
+<div class="font-label-mono-sm text-label-mono-sm text-[#8E8E93] mt-1">@alex_dev / prod-cluster</div>
+</div>
+</div>
+<!-- Hero Main Metric -->
+<div class="pt-6 pb-4">
+<div class="flex items-center justify-between">
+<span class="font-label-ui text-label-ui font-medium text-[#8E8E93] uppercase tracking-wider">Total Tokens Processed</span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-label-mono text-label-mono font-semibold">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                +18.4% vs last period
+              </span>
+</div>
+<!-- Giant Tabular Numeral Metric -->
+<div class="mt-1 font-stat-counter text-[42px] leading-[48px] font-extrabold text-[#1C1C1E] tracking-tight tabular-nums flex items-baseline gap-2">
+<span>148,924,108</span>
+<span class="font-label-mono text-label-mono text-[#8E8E93] font-normal">tokens</span>
+</div>
+</div>
+<!-- Secondary Metrics 4-Column Grid -->
+<div class="grid grid-cols-4 gap-3 py-4 border-y border-[#F2F2F7]">
+<!-- Metric 1: Total Spend -->
+<div class="p-3 bg-[#FAFAFC] rounded-xl border border-[#E5E5EA]/60">
+<div class="font-label-mono-sm text-label-mono-sm text-[#8E8E93] uppercase">Total Spend</div>
+<div class="font-headline-sm text-headline-sm font-bold text-[#1C1C1E] tabular-nums mt-0.5">$412.80</div>
+<div class="font-label-mono-sm text-[10px] text-[#8E8E93] mt-0.5">$0.0028/1k avg</div>
+</div>
+<!-- Metric 2: Top Model -->
+<div class="p-3 bg-[#FAFAFC] rounded-xl border border-[#E5E5EA]/60">
+<div class="font-label-mono-sm text-label-mono-sm text-[#8E8E93] uppercase">Top Model</div>
+<div class="font-label-ui text-label-ui font-bold text-[#1C1C1E] mt-0.5 truncate">Claude 3.5 Sonnet</div>
+<div class="font-label-mono-sm text-[10px] text-primary font-medium mt-0.5">64.2% workload</div>
+</div>
+<!-- Metric 3: Efficiency -->
+<div class="p-3 bg-[#FAFAFC] rounded-xl border border-[#E5E5EA]/60">
+<div class="font-label-mono-sm text-label-mono-sm text-[#8E8E93] uppercase">Success Rate</div>
+<div class="font-headline-sm text-headline-sm font-bold text-emerald-700 tabular-nums mt-0.5">99.94%</div>
+<div class="font-label-mono-sm text-[10px] text-[#8E8E93] mt-0.5">42ms p50 latency</div>
+</div>
+<!-- Metric 4: Peak TPS -->
+<div class="p-3 bg-[#FAFAFC] rounded-xl border border-[#E5E5EA]/60">
+<div class="font-label-mono-sm text-label-mono-sm text-[#8E8E93] uppercase">Peak TPS</div>
+<div class="font-headline-sm text-headline-sm font-bold text-[#1C1C1E] tabular-nums mt-0.5">84.2</div>
+<div class="font-label-mono-sm text-[10px] text-[#8E8E93] mt-0.5">tok/s throughput</div>
+</div>
+</div>
+<!-- Activity Sparkline Chart Stage -->
+<div class="pt-5 pb-3 relative">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-ui text-label-ui font-semibold text-[#1C1C1E]">Activity Daily Load Profile</span>
+<span class="font-label-mono-sm text-label-mono-sm text-[#8E8E93]">Oct 01 — Oct 30</span>
+</div>
+<!-- SVG Smooth Spline Chart -->
+<div class="relative h-28 w-full">
+<svg class="w-full h-full overflow-visible" fill="none" viewbox="0 0 516 112">
+<defs>
+<lineargradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#0070eb" stop-opacity="0.28"></stop>
+<stop offset="100%" stop-color="#0070eb" stop-opacity="0.00"></stop>
+</lineargradient>
+</defs>
+<!-- Area Fill -->
+<path d="M 0 100 C 40 95, 70 80, 110 70 C 150 60, 180 85, 220 50 C 260 15, 300 45, 340 30 C 380 15, 410 8, 440 2 C 470 -4, 500 40, 516 28 L 516 112 L 0 112 Z" fill="url(#chartGradient)"></path>
+<!-- Stroke Curve with CSS Draw Animation -->
+<path class="animate-chart" d="M 0 100 C 40 95, 70 80, 110 70 C 150 60, 180 85, 220 50 C 260 15, 300 45, 340 30 C 380 15, 410 8, 440 2 C 470 -4, 500 40, 516 28" stroke="#0070eb" stroke-linecap="round" stroke-width="2.5"></path>
+<!-- Peak Anchor Dot -->
+<circle class="shadow-sm" cx="440" cy="2" fill="#0070eb" r="4.5" stroke="#FFFFFF" stroke-width="2.5"></circle>
+</svg>
+<!-- Floating Interactive Tooltip for Peak Day -->
+<div class="absolute top-[-10px] left-[390px] -translate-x-1/2 bg-[#1C1C1E] text-white px-2.5 py-1 rounded-md text-[11px] font-label-mono shadow-lg flex items-center gap-1.5 pointer-events-none">
+<span class="font-bold text-[#72fe88]">Oct 24</span>
+<span class="text-white/60">·</span>
+<span>8.4M tok</span>
+</div>
+</div>
+<!-- Chart Horizontal Baseline Labels -->
+<div class="flex justify-between font-label-mono-sm text-[10px] text-[#8E8E93] pt-1 border-t border-[#F2F2F7]">
+<span>Oct 01 (3.1M)</span>
+<span>Oct 08</span>
+<span>Oct 15</span>
+<span>Oct 22</span>
+<span>Oct 30 (6.2M)</span>
+</div>
+</div>
+<!-- Model Distribution Segment Breakdown Bar -->
+<div class="pt-3 pb-2 space-y-2">
+<div class="flex items-center justify-between font-label-ui text-label-ui">
+<span class="font-medium text-[#8E8E93]">Inference Model Share</span>
+<span class="font-label-mono text-label-mono text-[#1C1C1E] font-medium">3 Active Engines</span>
+</div>
+<!-- Segmented Color Bar -->
+<div class="w-full h-2 rounded-full overflow-hidden flex gap-0.5 bg-[#F2F2F7]">
+<div class="h-full bg-[#0070eb] rounded-l-full" style="width: 64%" title="Claude 3.5 Sonnet: 64%"></div>
+<div class="h-full bg-[#6664e4]" style="width: 26%" title="GPT-4o: 26%"></div>
+<div class="h-full bg-[#34C759] rounded-r-full" style="width: 10%" title="Gemini 1.5 Pro: 10%"></div>
+</div>
+<!-- Model Legends -->
+<div class="flex items-center justify-between font-label-mono-sm text-[10px] text-[#8E8E93]">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-[#0070eb]"></span>
+<span class="text-[#1C1C1E] font-medium">Claude 3.5 Sonnet</span>
+<span>(64%)</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-[#6664e4]"></span>
+<span class="text-[#1C1C1E] font-medium">GPT-4o</span>
+<span>(26%)</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-[#34C759]"></span>
+<span class="text-[#1C1C1E] font-medium">Gemini 1.5 Pro</span>
+<span>(10%)</span>
+</div>
+</div>
+</div>
+<!-- Card Footer with Cryptographic Checksum & Watermark -->
+<footer class="pt-4 mt-2 border-t border-[#F2F2F7] flex items-center justify-between font-label-mono-sm text-[11px] text-[#8E8E93]">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-tertiary">lock</span>
+<span>SHA-256: 7f2a...8c1e</span>
+</div>
+<div class="flex items-center gap-2">
+<span>tokentracker.xyz/share</span>
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+</div>
+</footer>
+</article>
+<!-- Canvas Quick Notification Pill -->
+<div class="absolute bottom-6 bg-[#1C1C1E] text-white px-4 py-2 rounded-full font-label-ui text-label-ui shadow-xl flex items-center gap-2 transform translate-y-12 opacity-0 transition-all duration-300" id="toastNotification">
+<span class="material-symbols-outlined text-emerald-400 text-[18px]">check_circle</span>
+<span>High-Resolution PNG telemetry card copied to clipboard (3300×3300px @ 2x)</span>
+</div>
+</main>
+</div>
+</div>
+<!-- Micro-interactions JavaScript -->
+<script>
+    // Copy Image Feedback Simulation
+    const copyBtn = document.getElementById('copyBtn');
+    const toast = document.getElementById('toastNotification');
+
+    if (copyBtn && toast) {
+      copyBtn.addEventListener('click', () => {
+        // Show Toast
+        toast.classList.remove('translate-y-12', 'opacity-0');
+        toast.classList.add('translate-y-0', 'opacity-100');
+
+        const originalText = copyBtn.innerHTML;
+        copyBtn.innerHTML = `
+          <span class="material-symbols-outlined text-[16px]">check</span>
+          <span>Copied!</span>
+        `;
+
+        setTimeout(() => {
+          toast.classList.add('translate-y-12', 'opacity-0');
+          toast.classList.remove('translate-y-0', 'opacity-100');
+          copyBtn.innerHTML = originalText;
+        }, 2600);
+      });
+    }
+
+    // Keyboard shortcut handler for ⌘C / Ctrl+C
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
+        const activeElement = document.activeElement;
+        // Only trigger toast if not highlighting an input text box
+        if (activeElement && activeElement.tagName !== 'INPUT') {
+          copyBtn?.click();
+        }
+      }
+    });
+  </script>
+</body></html>
