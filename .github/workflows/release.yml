@@ -82,11 +82,14 @@ jobs:
           let all = [];
           try { all = walk(root, []); } catch (e) { console.error("FAIL: bundle tree missing: " + e.message); process.exit(1); }
           console.log("bundle files:\n" + all.join("\n"));
-          const zip = all.find((f) => f.endsWith(".nsis.zip"));
-          if (!zip) { console.error("FAIL: no .nsis.zip under bundle tree"); process.exit(1); }
-          const sig = fs.readFileSync(zip + ".sig", "utf8").trim();
-          if (!sig) { console.error("FAIL: empty signature for " + zip); process.exit(1); }
-          const zipName = path.basename(zip);
+          // With createUpdaterArtifacts:true the Windows updater bundle IS the
+          // signed installer itself (setup.exe + setup.exe.sig). The .nsis.zip
+          // layout only exists under the legacy "v1Compatible" mode.
+          const exe = all.find((f) => f.endsWith("-setup.exe"));
+          if (!exe) { console.error("FAIL: no setup.exe under bundle tree"); process.exit(1); }
+          const sig = fs.readFileSync(exe + ".sig", "utf8").trim();
+          if (!sig) { console.error("FAIL: empty signature for " + exe); process.exit(1); }
+          const exeName = path.basename(exe);
           const latest = {
             version: tag,
             notes: "tokentracker " + tag,
@@ -94,7 +97,7 @@ jobs:
             platforms: {
               "windows-x86_64": {
                 signature: sig,
-                url: "https://github.com/" + repo + "/releases/download/" + tag + "/" + zipName,
+                url: "https://github.com/" + repo + "/releases/download/" + tag + "/" + exeName,
               },
             },
           };
@@ -106,7 +109,7 @@ jobs:
           } catch {
             sh("gh release create " + tag + " --title \"tokentracker " + tag + "\" --notes \"tokentracker " + tag + "\" --repo " + repo);
           }
-          const want = ["latest.json", zip, zip + ".sig"];
+          const want = ["latest.json", exe, exe + ".sig"];
           for (const f of all) {
             if ((f.endsWith("-setup.exe") || f.endsWith(".msi")) && !want.includes(f)) want.push(f);
             if (f.endsWith(".sig") && !want.includes(f)) want.push(f);
