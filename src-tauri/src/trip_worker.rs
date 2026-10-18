@@ -88,6 +88,10 @@ pub fn start_trip_worker(app: AppHandle) {
                         "trip://stopped",
                         serde_json::json!({ "trip_id": stopped_id, "reason": reason }),
                     );
+                    // Persist the auto-stop so restarts see the closed trip.
+                    if let Some(state) = app.try_state::<crate::AppState>() {
+                        crate::persist_trips(&state);
+                    }
                     // Best-effort OS notification (silent fail in browser/dev).
                     #[cfg(desktop)]
                     {

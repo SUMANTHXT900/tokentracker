@@ -121,6 +121,7 @@ export interface TripDTO {
   started_at: string;
   stopped_at: string | null;
   stop_reason: "manual" | "after" | "idle" | null;
+  resumed?: boolean;
 }
 
 export interface TripDetailDTO {

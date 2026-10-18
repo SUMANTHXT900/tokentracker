@@ -26,6 +26,11 @@ pub struct TripConfig {
     /// For stop_mode == "idle": stop after this many ms without activity.
     pub idle_after_ms: Option<i64>,
     pub stop_reason: Option<String>,
+    /// True when this active trip was restored from disk after an app
+    /// restart (rather than started in this session). Serialized so a
+    /// second restart keeps the (correct) resumed state.
+    #[serde(default)]
+    pub resumed: bool,
 }
 
 impl TripConfig {
@@ -57,6 +62,7 @@ pub fn trip_started_now_with_mode(
         stop_after_ms,
         idle_after_ms,
         stop_reason: None,
+        resumed: false,
     }
 }
 
@@ -147,6 +153,101 @@ pub fn check_auto_stop(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Disk persistence: trips survive app restarts.
+//
+// The store is a single JSON file (`trips.json` in the Tauri app-data dir)
+// written atomically (temp file + rename) on every mutation. Rows themselves
+// live in the agent logs on disk, so a restored trip's delta automatically
+// includes usage from while the app was closed — `filter_rows_for_trip`
+// windows on `[started_at_ms, ended_at_ms-or-now]`.
+// ---------------------------------------------------------------------------
+
+/// On-disk shape: the trip list plus which trip (if any) was active.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TripStoreFile {
+    #[serde(default)]
+    pub trips: Vec<TripConfig>,
+    #[serde(default)]
+    pub active_trip_id: Option<String>,
+}
+
+/// Load the store. Missing file → empty store. Corrupt file → moved aside
+/// (`trips.json.corrupt-<millis>`) and treated as empty, so one bad write can
+/// never brick trip history.
+pub fn load_trips_file(path: &std::path::Path) -> TripStoreFile {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return TripStoreFile::default(),
+        Err(_) => return TripStoreFile::default(),
+    };
+    match serde_json::from_str::<TripStoreFile>(&raw) {
+        Ok(store) => store,
+        Err(_) => {
+            let backup = path.with_extension(format!(
+                "json.corrupt-{}",
+                chrono::Utc::now().timestamp_millis()
+            ));
+            let _ = std::fs::rename(path, backup);
+            TripStoreFile::default()
+        }
+    }
+}
+
+/// Save the store atomically (temp file + rename).
+pub fn save_trips_file(path: &std::path::Path, store: &TripStoreFile) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("trips dir: {e}"))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let raw = serde_json::to_string_pretty(store).map_err(|e| format!("trips serialize: {e}"))?;
+    std::fs::write(&tmp, raw).map_err(|e| format!("trips write: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("trips commit: {e}"))?;
+    Ok(())
+}
+
+/// Reconcile a freshly loaded store against `now_ms`.
+///
+/// - Active trips restored from disk are marked `resumed = true`.
+/// - Expired `after` trips are closed retroactively at their deadline
+///   (`started_at_ms + stop_after_ms`, reason `time-elapsed`) so a trip whose
+///   deadline passed while the app was closed shows the right end time.
+/// - `idle` trips are left to the trip worker, which recomputes last activity
+///   from a fresh scan (needs I/O; reconcile stays pure).
+/// - If the active trip was closed, it is cleared.
+///
+/// Returns true when anything changed (caller should persist).
+pub fn reconcile_on_startup(store: &mut TripStoreFile, now_ms: i64) -> bool {
+    let mut changed = false;
+    for trip in store.trips.iter_mut().filter(|t| t.ended_at_ms.is_none()) {
+        if !trip.resumed {
+            trip.resumed = true;
+            changed = true;
+        }
+        if trip.stop_mode == "after" {
+            if let Some(after) = trip.stop_after_ms {
+                let deadline = trip.started_at_ms.saturating_add(after);
+                if now_ms >= deadline {
+                    trip.ended_at_ms = Some(deadline);
+                    trip.stop_reason = Some("time-elapsed".to_string());
+                    changed = true;
+                }
+            }
+        }
+    }
+    if let Some(active_id) = store.active_trip_id.clone() {
+        let still_active = store
+            .trips
+            .iter()
+            .any(|t| t.id == active_id && t.ended_at_ms.is_none());
+        if !still_active {
+            store.active_trip_id = None;
+            changed = true;
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +287,7 @@ mod tests {
             stop_after_ms: None,
             idle_after_ms: None,
             stop_reason: None,
+            resumed: false,
         };
         let rows = vec![
             row("claude", 1500),
@@ -209,11 +311,105 @@ mod tests {
             stop_after_ms: Some(500),
             idle_after_ms: None,
             stop_reason: None,
+            resumed: false,
         };
         assert_eq!(check_auto_stop(&trip, 1499, None), None);
         assert_eq!(
             check_auto_stop(&trip, 1500, None),
             Some("time-elapsed".to_string())
         );
+    }
+
+    fn active_trip(id: &str, mode: &str, started: i64, after: Option<i64>) -> TripConfig {
+        TripConfig {
+            id: id.into(),
+            name: id.into(),
+            clients: None,
+            started_at_ms: started,
+            ended_at_ms: None,
+            stop_mode: mode.into(),
+            stop_after_ms: after,
+            idle_after_ms: None,
+            stop_reason: None,
+            resumed: false,
+        }
+    }
+
+    #[test]
+    fn store_roundtrip_preserves_trips_and_active() {
+        let dir = std::env::temp_dir().join(format!("tokentracker-test-{}", line!()));
+        let path = dir.join("trips.json");
+        let store = TripStoreFile {
+            trips: vec![active_trip("a", "manual", 1000, None)],
+            active_trip_id: Some("a".into()),
+        };
+        save_trips_file(&path, &store).expect("save");
+        let loaded = load_trips_file(&path);
+        assert_eq!(loaded, store);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reconcile_closes_expired_after_trip_and_marks_resumed() {
+        let mut store = TripStoreFile {
+            // started at 1000, 500ms limit, now well past the deadline.
+            trips: vec![
+                active_trip("expired", "after", 1000, Some(500)),
+                active_trip("live", "manual", 1000, None),
+            ],
+            active_trip_id: Some("live".into()),
+        };
+        assert!(reconcile_on_startup(&mut store, 5000));
+        let expired = store.trips.iter().find(|t| t.id == "expired").unwrap();
+        assert_eq!(expired.ended_at_ms, Some(1500));
+        assert_eq!(expired.stop_reason.as_deref(), Some("time-elapsed"));
+        assert!(expired.resumed);
+        let live = store.trips.iter().find(|t| t.id == "live").unwrap();
+        assert!(live.ended_at_ms.is_none());
+        assert!(live.resumed);
+        assert_eq!(store.active_trip_id.as_deref(), Some("live"));
+    }
+
+    #[test]
+    fn reconcile_clears_active_when_trip_ended() {
+        let mut store = TripStoreFile {
+            trips: vec![active_trip("x", "after", 1000, Some(500))],
+            active_trip_id: Some("x".into()),
+        };
+        assert!(reconcile_on_startup(&mut store, 9000));
+        assert_eq!(store.active_trip_id, None);
+    }
+
+    #[test]
+    fn reconcile_noop_when_nothing_to_do() {
+        let mut store = TripStoreFile::default();
+        assert!(!reconcile_on_startup(&mut store, 5000));
+    }
+
+    #[test]
+    fn corrupt_file_is_quarantined_not_fatal() {
+        let dir = std::env::temp_dir().join(format!("tokentracker-test-corrupt-{}", line!()));
+        let path = dir.join("trips.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "{ not json").unwrap();
+        let loaded = load_trips_file(&path);
+        assert_eq!(loaded, TripStoreFile::default());
+        // Original moved aside; a fresh save works over it.
+        save_trips_file(
+            &path,
+            &TripStoreFile {
+                trips: vec![active_trip("a", "manual", 1, None)],
+                active_trip_id: None,
+            },
+        )
+        .expect("save after corrupt");
+        assert_eq!(load_trips_file(&path).trips.len(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn missing_file_loads_empty() {
+        let path = std::env::temp_dir().join(format!("tokentracker-test-missing-{}-x.json", line!()));
+        assert_eq!(load_trips_file(&path), TripStoreFile::default());
     }
 }

@@ -200,6 +200,14 @@ export default function TripView({ tripId }: { tripId: string }) {
                 <span className="rounded bg-[#0070eb]/[0.08] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[#414755]">
                   15s tick
                 </span>
+                {trip?.resumed && !trip.stopped_at && (
+                  <span
+                    title="Restored after an app restart — totals include usage from while the app was closed"
+                    className="rounded bg-[#006b27]/[0.08] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[#006b27]"
+                  >
+                    resumed
+                  </span>
+                )}
               </div>
               <h3 className="font-display mt-1.5 truncate text-xl font-semibold tracking-tight text-[#1a1b1f]">
                 {trip?.name ?? "Live focus"}

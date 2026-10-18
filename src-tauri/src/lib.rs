@@ -9,8 +9,9 @@ pub mod trips;
 pub mod watcher;
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
 
 use adapter::{UsageSnapshotDTO, parse_to_snapshot_async};
 use trips::{TripConfig, capture_baseline, filter_rows_for_trip, trip_stop_now, trip_started_now_with_mode};
@@ -19,6 +20,39 @@ pub struct AppState {
     pub active_trip: Mutex<Option<TripConfig>>,
     pub trips: Mutex<Vec<TripConfig>>,
     pub last_scan_at: Mutex<Option<String>>,
+    /// Resolved in `setup()`; None in unit-test contexts without an app dir.
+    pub trips_file: Mutex<Option<PathBuf>>,
+}
+
+/// Snapshot the in-memory trip state to disk (best-effort; logs on failure,
+/// never fails the calling command). Active trips are healed into the list
+/// so the legacy `cmd_trip_start` path (active-only) survives restarts too.
+pub fn persist_trips(state: &State<'_, AppState>) {
+    let path = match state.trips_file.lock().map(|g| g.clone()).unwrap_or(None) {
+        Some(p) => p,
+        None => return,
+    };
+    let mut trips = match state.trips.lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    let active = match state.active_trip.lock() {
+        Ok(g) => g.clone(),
+        Err(_) => return,
+    };
+    if let Some(ref a) = active {
+        if !trips.iter().any(|t| t.id == a.id) {
+            trips.push(a.clone());
+        }
+    }
+    let store = trips::TripStoreFile {
+        trips: trips.clone(),
+        active_trip_id: active.map(|a| a.id),
+    };
+    drop(trips);
+    if let Err(e) = trips::save_trips_file(&path, &store) {
+        eprintln!("tokentracker: persist trips failed: {e}");
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -68,6 +102,7 @@ pub struct TripDTO {
     pub started_at: String,
     pub stopped_at: Option<String>,
     pub stop_reason: Option<String>,
+    pub resumed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +145,7 @@ fn config_to_dto(t: &TripConfig) -> TripDTO {
         started_at: ms_to_rfc3339(t.started_at_ms),
         stopped_at: t.ended_at_ms.map(ms_to_rfc3339),
         stop_reason: t.stop_reason.clone(),
+        resumed: t.resumed,
     }
 }
 
@@ -202,6 +238,7 @@ fn cmd_trip_start(
         .active_trip
         .lock()
         .map_err(|e| format!("trip state poisoned: {e}"))? = Some(trip.clone());
+    persist_trips(&state);
     Ok(trip)
 }
 
@@ -216,6 +253,8 @@ fn cmd_trip_stop(
         .lock()
         .map_err(|e| format!("trip state poisoned: {e}"))?;
     let stopped = guard.take().map(|t| trip_stop_now(t, reason));
+    drop(guard);
+    persist_trips(&state);
     Ok(stopped)
 }
 
@@ -278,27 +317,31 @@ fn start_trip(
         .lock()
         .map_err(|e| format!("trip state poisoned: {e}"))?
         .push(trip);
+    persist_trips(&state);
     Ok(dto)
 }
 
 #[tauri::command]
 fn stop_trip(state: State<'_, AppState>, trip_id: String) -> Result<TripDTO, String> {
-    let mut trips = state
-        .trips
-        .lock()
-        .map_err(|e| format!("trip state poisoned: {e}"))?;
-    let trip = trips
-        .iter_mut()
-        .find(|t| t.id == trip_id)
-        .ok_or_else(|| format!("trip not found: {trip_id}"))?;
-    *trip = trip_stop_now(trip.clone(), None);
-    let dto = config_to_dto(trip);
+    let dto = {
+        let mut trips = state
+            .trips
+            .lock()
+            .map_err(|e| format!("trip state poisoned: {e}"))?;
+        let trip = trips
+            .iter_mut()
+            .find(|t| t.id == trip_id)
+            .ok_or_else(|| format!("trip not found: {trip_id}"))?;
+        *trip = trip_stop_now(trip.clone(), None);
+        config_to_dto(trip)
+    };
     // Clear active if it matches
     if let Ok(mut active) = state.active_trip.lock() {
         if active.as_ref().map(|a| a.id.as_str()) == Some(trip_id.as_str()) {
             *active = None;
         }
     }
+    persist_trips(&state);
     Ok(dto)
 }
 
@@ -373,9 +416,34 @@ pub fn run() {
             active_trip: Mutex::new(None),
             trips: Mutex::new(Vec::new()),
             last_scan_at: Mutex::new(None),
+            trips_file: Mutex::new(None),
         })
         .manage(watcher::WatcherState::default())
         .setup(|app| {
+            // Resolve + seed persisted trips BEFORE the worker starts, so a
+            // trip left running across a restart resumes with its full window
+            // (rows live in agent logs on disk; deltas recompute over them).
+            // Idle trips reconcile via the worker's first scan (~60s).
+            if let Ok(dir) = app.path().app_data_dir() {
+                let path = dir.join("trips.json");
+                if let Ok(mut slot) = app.state::<AppState>().trips_file.lock() {
+                    *slot = Some(path.clone());
+                }
+                let mut store = trips::load_trips_file(&path);
+                if trips::reconcile_on_startup(&mut store, chrono::Utc::now().timestamp_millis()) {
+                    let _ = trips::save_trips_file(&path, &store);
+                }
+                let active = store
+                    .active_trip_id
+                    .as_ref()
+                    .and_then(|id| store.trips.iter().find(|t| t.id == *id).cloned());
+                if let Ok(mut trips) = app.state::<AppState>().trips.lock() {
+                    *trips = store.trips;
+                }
+                if let Ok(mut slot) = app.state::<AppState>().active_trip.lock() {
+                    *slot = active;
+                }
+            }
             watcher::start_watcher(app.handle().clone());
             trip_worker::start_trip_worker(app.handle().clone());
             Ok(())

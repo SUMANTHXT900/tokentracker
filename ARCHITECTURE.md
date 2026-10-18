@@ -139,18 +139,18 @@ Step 2 — Stop mode (required, radio + conditional input):
 
 Step 3 — Name (text, default `Trip <date>`), Review baseline (read-only preview: current totals), Confirm.
 
-### 6.2 Baseline `dedup_key` watermark
+### 6.2 Baseline + persistence (as built)
 
-- On `start_trip`: inside one SQLite txn, record `baseline_watermark = MAX(cache.rowid)` + `baseline_snapshot { totals, by_model }` + `started_at`, `scope`, `stop` config. Return trip.
-- Deltas are **not** copies — `get_trip` computes `WHERE rowid > baseline_watermark AND scope_match(scope)` live from cache. This makes trips cheap, immune to re-pricing (costs recomputed with current pricing), and correct across restarts.
-- `dedup_key` = stable upstream id (`source:session_id:msg_id:variant`); `INSERT OR IGNORE` guarantees re-parses never double-count, so watermark (rowid-based) stays valid even if files are rewritten.
-- Stop: `stopped_at`, `stop_reason`, freeze `final_snapshot`. History immutable after stop.
+- Trips are time-window lenses, not snapshots: `TripConfig { started_at_ms, ended_at_ms?, clients?, stop_mode }`. `get_trip` filters live snapshot rows to `[started_at, ended_at_or_now]` + client allow-list, so deltas always reflect current logs and pricing.
+- Trips persist in `trips.json` (Tauri app-data dir), written atomically on every start/stop/auto-stop and loaded in `setup()`. Closing the app never loses a trip.
+- On startup restore: active trips are flagged `resumed` (surfaced in the UI); expired `after` trips are closed retroactively at their deadline (`started_at + N`, reason `time-elapsed`); `idle` trips reconcile via the worker's next scan (≤60s). Usage from while the app was closed is included automatically — it lives in the agent logs on disk.
+- Deltas are **not** copies — recomputed live from logs. This makes trips cheap and correct across restarts.
 
 ### 6.3 Edge cases
 
-- Deleting cache → trips show `baseline lost` state, offer "re-baseline" (new trip) — never fabricate deltas.
+- Corrupt `trips.json` → quarantined aside (`trips.json.corrupt-<ts>`), history restarts empty — one bad write never bricks trips.
 - Scope `clients` added in future: old trips with unknown client strings still filter by exact match, no migration needed.
-- Idle trips survive app restart: on boot, evaluate `now - last_in_scope_at > M` → auto-stop with reason `idle`.
+- Restart with an active trip: manual trips resume live (delta covers the closed interval); `after` trips past deadline close at the deadline; `idle` trips close on the worker's next scan if quiet.
 
 ---
 
