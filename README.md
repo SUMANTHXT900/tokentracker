@@ -17,6 +17,23 @@ Local-first desktop telemetry for AI coding-agent spend. No accounts. No cloud. 
 
 ---
 
+## Download
+
+<a href="https://github.com/SUMANTHXT900/tokentracker/releases/latest">
+  <img src="https://img.shields.io/badge/Download-Windows_Installer-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download TokenTracker for Windows" />
+</a>
+
+**Windows 10/11 64-bit** · Free · No account needed · Your logs never leave your PC
+
+1. Click **Download** above — it opens the latest release page.
+2. Download the `tokentracker_*_x64-setup.exe` installer.
+3. Run it. Windows SmartScreen may ask on first install — click **More info → Run anyway**.
+4. Launch TokenTracker — it picks up your existing agent logs automatically and starts tracking.
+
+> Prefer manual updates? Every release also ships a signed bundle the in-app updater (Settings → Updates) installs on your click — nothing ever installs silently.
+
+---
+
 ## What it does
 
 Every AI coding session burns tokens — across OpenCode, Copilot, Codex, Gemini, and more — and that spend is invisible until the bill arrives. TokenTracker reads your agents' **local log files**, aggregates them with the battle-tested `tokscale-core` engine, and presents the truth in a calm, Apple-minimal cockpit:
