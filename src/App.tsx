@@ -2128,6 +2128,11 @@ function SettingsView({
               v{updater.available.version} is ready — use the update notification to download and install it.
             </p>
           )}
+          <p className="px-1 text-[11px] leading-relaxed text-[#8e8e93]">
+            Icons look stale after updating? Unpin and re-pin the taskbar icon, or run{" "}
+            <code className="tnum font-mono">ie4uinit.exe -show</code> and restart Explorer —
+            Windows caches icons separately from the app.
+          </p>
           <button
             onClick={() => void updater.checkNow()}
             disabled={updater.checkState.kind === "checking"}
