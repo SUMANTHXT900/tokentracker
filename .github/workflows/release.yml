@@ -41,28 +41,22 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
-      - name: Build + publish with tauri-action
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # TODO(secrets): add TAURI_SIGNING_PRIVATE_KEY (repo Settings → Secrets → Actions)
-          # Generate via: tauri signer generate -w ~/.tauri/tokentracker.key
-          # Public key must match src-tauri/tauri.conf.json > plugins.updater.pubkey
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # TODO(secrets): add TAURI_SIGNING_PRIVATE_KEY_PASSWORD if the key has one.
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "tokentracker ${{ github.ref_name }}"
-          releaseBody: "See CHANGELOG for details."
-          releaseDraft: false
-          prerelease: false
+          workspaces: src-tauri
 
-      # tauri-action sometimes skips the updater payload ("Signature not found
-      # for the updater JSON"). This step builds latest.json deterministically
-      # from the freshly signed NSIS bundle and uploads every updater artifact,
-      # so the in-app updater can never be left without its feed.
-      - name: Publish updater artifacts (latest.json + nsis.zip + sigs)
+      - name: Build signed bundles (tauri build signs updater artifacts)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build
+
+      # Publishes installers + updater feed directly. (tauri-action was
+      # dropping the updater payload in this environment, and cleans the bundle
+      # dir after upload — so this pipeline builds with the Tauri CLI and owns
+      # every upload itself. Updater payload is version+arch only, no telemetry.)
+      - name: Publish release + updater artifacts
         shell: bash
         working-directory: ${{ github.workspace }}
         env:
@@ -75,7 +69,7 @@ jobs:
           const cp = require("child_process");
           const repo = "SUMANTHXT900/tokentracker";
           const tag = process.env.TAG;
-          console.log("cwd=" + process.cwd());
+          const sh = (cmd) => cp.execSync(cmd, { stdio: "inherit" });
           function walk(dir, out) {
             for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
               const p = path.join(dir, e.name);
@@ -86,7 +80,7 @@ jobs:
           }
           const root = path.join(process.cwd(), "src-tauri", "target", "release", "bundle");
           let all = [];
-          try { all = walk(root, []); } catch (e) { console.error("bundle tree missing: " + e.message); }
+          try { all = walk(root, []); } catch (e) { console.error("FAIL: bundle tree missing: " + e.message); process.exit(1); }
           console.log("bundle files:\n" + all.join("\n"));
           const zip = all.find((f) => f.endsWith(".nsis.zip"));
           if (!zip) { console.error("FAIL: no .nsis.zip under bundle tree"); process.exit(1); }
@@ -106,14 +100,19 @@ jobs:
           };
           fs.writeFileSync("latest.json", JSON.stringify(latest, null, 2) + "\n");
           console.log("latest.json -> " + latest.platforms["windows-x86_64"].url);
-          cp.execSync(
-            "gh release upload " + tag +
-            " \"" + zip + "\"" +
-            " \"" + zip + ".sig\"" +
-            " latest.json --clobber --repo " + repo,
-            { stdio: "inherit" },
-          );
+          try {
+            cp.execSync("gh release view " + tag + " --repo " + repo, { stdio: "pipe" });
+            console.log("release exists, uploading into it");
+          } catch {
+            sh("gh release create " + tag + " --title \"tokentracker " + tag + "\" --notes \"tokentracker " + tag + "\" --repo " + repo);
+          }
+          const want = ["latest.json", zip, zip + ".sig"];
+          for (const f of all) {
+            if ((f.endsWith("-setup.exe") || f.endsWith(".msi")) && !want.includes(f)) want.push(f);
+            if (f.endsWith(".sig") && !want.includes(f)) want.push(f);
+          }
+          sh("gh release upload " + tag + " " + want.map((f) => "\"" + f + "\"").join(" ") + " --clobber --repo " + repo);
+          console.log("uploaded " + want.length + " files");
           '
 
-      # tauri-action uploads bundles + generates latest.json for the updater.
       # Updater payload is version+arch only (no telemetry) — see ARCHITECTURE.md §4.
