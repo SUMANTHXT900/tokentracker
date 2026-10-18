@@ -177,6 +177,58 @@ interface ClientStat {
   sessions: number;
 }
 
+/** First-load overlay: branded animation until the first real snapshot lands.
+ *  Refetches keep old data (placeholderData) so this shows exactly once. */
+function BootOverlay() {
+  const [stage, setStage] = useState(0);
+  useEffect(() => {
+    const t1 = window.setTimeout(() => setStage(1), 8000);
+    const t2 = window.setTimeout(() => setStage(2), 25000);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, []);
+  return (
+    <motion.div
+      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-canvas/95 px-6 text-center"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
+      role="status"
+      aria-label="Loading TokenTracker data"
+    >
+      <span className="flex h-16 w-16 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-[#2f8bff] to-[#00459e] shadow-[0_12px_32px_-12px_rgba(0,112,235,0.5)]">
+        <Cube size={30} weight="duotone" className="text-white" aria-hidden />
+      </span>
+      <div>
+        <p className="font-display text-lg font-semibold tracking-tight text-ink">TokenTracker</p>
+        <p className="tnum mt-1 font-mono text-[11px] text-ink-3">
+          {stage === 0
+            ? "Reading local logs…"
+            : stage === 1
+              ? "Still reading — large log history…"
+              : "Taking longer than usual — retrying quietly…"}
+        </p>
+      </div>
+      <div
+        className="h-1 w-44 overflow-hidden rounded-full bg-tray-deep"
+        aria-hidden
+      >
+        <motion.div
+          className="h-full w-1/2 rounded-full bg-primary"
+          animate={{ x: ["-100%", "300%"] }}
+          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+        />
+      </div>
+      <p className="max-w-xs text-[11px] leading-relaxed text-ink-3">
+        Parsing ~60 agent formats on this machine. Nothing leaves your PC.
+      </p>
+    </motion.div>
+  );
+}
+
 export default function App() {
   const { page, setPage, clients, setClients, since, until, setRange, activeTripId } = useStore();
   const filters = { clients, since, until };
@@ -568,7 +620,8 @@ export default function App() {
       </div>
 
       {/* ── Main cockpit column ────────────────────────────────────────── */}
-      <main className="min-w-0 flex-1">
+      <main className="relative min-w-0 flex-1">
+        <AnimatePresence>{loading && <BootOverlay />}</AnimatePresence>
         <div className="mx-auto max-w-6xl space-y-5 p-6">
           {/* Top instrument readout: page title + date range island */}
           <header className="rounded-[1.75rem] border border-hairline bg-card p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
