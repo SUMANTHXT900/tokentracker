@@ -50,6 +50,7 @@ import Heatmap from "./components/Heatmap";
 import SessionsTable from "./components/SessionsTable";
 import TripSetupModal from "./components/TripSetupModal";
 import TripView from "./components/TripView";
+import Titlebar from "./components/Titlebar";
 import PngCards from "./components/PngCards";
 import UsageDetail from "./components/UsageDetail";
 import { useUpdater, UpdateToasts } from "./updater";
@@ -380,11 +381,13 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div className="flex min-h-dvh bg-canvas text-ink">
+    <div className="flex min-h-dvh flex-col bg-canvas text-ink">
+      <Titlebar />
+      <div className="flex min-h-0 flex-1">
       {/* ── Cupertino telemetry rail (fixed chrome) ─────────────────────── */}
       <div
         className={cn(
-          "sticky top-0 z-30 h-dvh shrink-0 p-3 pr-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          "sticky top-0 z-30 h-[calc(100dvh-2.5rem)] shrink-0 p-3 pr-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
           railExpanded ? "w-[268px]" : "w-[88px]",
         )}
         onMouseEnter={() => {
@@ -1054,6 +1057,7 @@ export default function App() {
           </AnimatePresence>
         </div>
       </main>
+      </div>
 
       {tripModal && <TripSetupModal onClose={() => setTripModal(false)} allClients={knownClients} />}
       <UpdateToasts updater={updater} />
