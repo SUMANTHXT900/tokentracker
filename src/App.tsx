@@ -52,7 +52,7 @@ import TripSetupModal from "./components/TripSetupModal";
 import TripView from "./components/TripView";
 import PngCards from "./components/PngCards";
 import UsageDetail from "./components/UsageDetail";
-import { useUpdater, UpdateModal } from "./updater";
+import { useUpdater, UpdateToasts } from "./updater";
 
 type NavIcon = typeof SquaresFour;
 
@@ -240,7 +240,6 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [presetDays, setPresetDays] = useState<number | null>(null);
   const updater = useUpdater();
-  const { available, dismiss } = updater;
   const queryClient = useQueryClient();
 
   // Collapsible rail: pinned preference + transient hover/focus reveal.
@@ -1057,9 +1056,7 @@ export default function App() {
       </main>
 
       {tripModal && <TripSetupModal onClose={() => setTripModal(false)} allClients={knownClients} />}
-      {available && (
-        <UpdateModal version={available.version} body={available.body} onClose={dismiss} />
-      )}
+      <UpdateToasts updater={updater} />
     </div>
     </MotionConfig>
   );
@@ -2128,7 +2125,7 @@ function SettingsView({
           )}
           {updater.available && (
             <p role="status" className="rounded-xl border border-[#0070eb]/25 bg-[#0070eb]/10 p-2.5 text-[11px] text-[#0058bc]">
-              v{updater.available.version} is ready — use the update dialog to download and install it.
+              v{updater.available.version} is ready — use the update notification to download and install it.
             </p>
           )}
           <button

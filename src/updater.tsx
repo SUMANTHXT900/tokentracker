@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowsClockwise, CheckCircle, DownloadSimple, X } from "@phosphor-icons/react";
 import { check } from "@tauri-apps/plugin-updater";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { cn } from "./lib/cn";
 
-/** Notify-only updater: stable channel, user-gated download/install/relaunch. */
+/** Notify-only updater: stable channel, everything user-gated via toasts. */
 export type UpdateCheckState =
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "uptodate"; at: string }
   | { kind: "failed"; at: string };
+
+export type UpdateDownloadState =
+  | { kind: "idle" }
+  | { kind: "working"; bytes: number }
+  | { kind: "ready" }
+  | { kind: "failed"; message: string };
 
 export function useUpdater() {
   const [available, setAvailable] = useState<null | {
@@ -18,6 +26,8 @@ export function useUpdater() {
   const [checked, setChecked] = useState(false);
   const [checkState, setCheckState] = useState<UpdateCheckState>({ kind: "idle" });
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [download, setDownload] = useState<UpdateDownloadState>({ kind: "idle" });
+  const [hideWorking, setHideWorking] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +46,8 @@ export function useUpdater() {
   const applyResult = useCallback((update: Awaited<ReturnType<typeof check>>) => {
     if (update?.available) {
       setAvailable({ version: update.version, body: update.body });
-      // UpdateModal takes over from here.
+      setDownload({ kind: "idle" });
+      setHideWorking(false);
       setCheckState({ kind: "idle" });
     } else {
       setAvailable(null);
@@ -74,25 +85,57 @@ export function useUpdater() {
     }
   }, [applyResult]);
 
-  return { available, checked, checkState, appVersion, checkNow, dismiss: () => setAvailable(null) };
-}
+  const startDownload = useCallback(async () => {
+    setDownload({ kind: "working", bytes: 0 });
+    setHideWorking(false);
+    try {
+      const update = await check();
+      if (!update?.available) {
+        setAvailable(null);
+        setDownload({ kind: "idle" });
+        setCheckState({ kind: "uptodate", at: new Date().toISOString() });
+        return;
+      }
+      let downloaded = 0;
+      await update.downloadAndInstall((ev) => {
+        if (ev.event === "Started") {
+          downloaded = 0;
+          setDownload({ kind: "working", bytes: 0 });
+        } else if (ev.event === "Progress") {
+          downloaded += ev.data.chunkLength;
+          setDownload({ kind: "working", bytes: downloaded });
+        }
+      });
+      setAvailable(null);
+      setDownload({ kind: "ready" });
+    } catch (e) {
+      setDownload({ kind: "failed", message: String(e) });
+    }
+  }, []);
 
-export async function installUpdateAndRelaunch(onProgress?: (pct: number) => void) {
-  const update = await check();
-  if (!update?.available) return;
-  let downloaded = 0;
-  await update.downloadAndInstall((ev) => {
-    if (ev.event === "Started") onProgress?.(0);
-    else if (ev.event === "Progress") {
-      downloaded += ev.data.chunkLength;
-      onProgress?.(downloaded);
-    } else if (ev.event === "Finished") onProgress?.(100);
-  });
-  // Relaunch only on explicit user action — caller shows its own confirm button.
-}
+  const dismissUpdate = useCallback(() => {
+    setAvailable(null);
+    setDownload({ kind: "idle" });
+    setHideWorking(false);
+  }, []);
 
-export async function relaunchApp() {
-  await relaunch();
+  const relaunchNow = useCallback(async () => {
+    await relaunch();
+  }, []);
+
+  return {
+    available,
+    checked,
+    checkState,
+    appVersion,
+    checkNow,
+    download,
+    hideWorking,
+    setHideWorking,
+    startDownload,
+    dismissUpdate,
+    relaunchNow,
+  };
 }
 
 /** Humanize a byte count (progress events report chunk bytes, not a total). */
@@ -108,124 +151,164 @@ function fmtBytes(n: number): string {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[u]}`;
 }
 
-export function UpdateModal({
-  version,
+function ToastShell({
+  title,
   body,
-  onClose,
+  icon,
+  actions,
+  tone = "info",
 }: {
-  version: string;
-  body: string | undefined;
-  onClose: () => void;
+  title: string;
+  body?: string;
+  icon: React.ReactNode;
+  actions: React.ReactNode;
+  tone?: "info" | "ready" | "error";
 }) {
-  const [busy, setBusy] = useState(false);
-  const [pct, setPct] = useState<number | null>(null);
-  const [done, setDone] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const download = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      await installUpdateAndRelaunch((p) => setPct(p));
-      setDone(true);
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    const primary = panelRef.current?.querySelector<HTMLButtonElement>("[data-primary]");
-    primary?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        e.preventDefault();
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab" || !panelRef.current) return;
-      const items = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>("button:not([disabled])"),
-      );
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      prev?.focus?.();
-    };
-  }, [onClose]);
-
-  const progressLabel =
-    pct === null ? null : pct >= 100 && done ? "Download complete" : `Downloading… ${fmtBytes(pct)}`;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Update available, version ${version}`}
-        className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-5"
-      >
-        <h2 className="text-lg font-semibold">Update available: v{version}</h2>
-        <p className="mt-1 text-xs text-zinc-500">Stable channel · notify-only · nothing installed yet</p>
-        {body && (
-          <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-zinc-900 p-3 text-xs text-zinc-300">
-            {body}
-          </pre>
-        )}
-        {err && (
-          <p role="alert" className="mt-2 text-xs text-red-400">
-            Update failed: {err}
-          </p>
-        )}
-        {progressLabel && !done && (
-          <p role="status" className="tnum mt-2 font-mono text-xs text-zinc-400">
-            {progressLabel}
-          </p>
-        )}
-        {done && <p className="mt-2 text-xs text-emerald-400">Installed — relaunch to apply it.</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-zinc-700 px-4 py-2 text-sm"
-          >
-            Later
-          </button>
-          {!done ? (
-            <button
-              onClick={download}
-              disabled={busy}
-              data-primary
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {busy ? "Downloading…" : "Download + install"}
-            </button>
-          ) : (
-            <button
-              onClick={relaunchApp}
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
-            >
-              Relaunch now
-            </button>
+    <div
+      role="status"
+      className="pointer-events-auto w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-[#e5e5ea] bg-white/95 p-4 shadow-[0_12px_32px_-12px_rgba(16,24,40,0.25)] backdrop-blur-xl"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+            tone === "error"
+              ? "bg-red-50 text-red-600"
+              : tone === "ready"
+                ? "bg-[#006b27]/10 text-[#006b27]"
+                : "bg-[#0070eb]/10 text-[#0058bc]",
           )}
+          aria-hidden
+        >
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-[#1c1c1e]">{title}</p>
+          {body && <p className="mt-0.5 text-[12px] leading-relaxed text-[#717786]">{body}</p>}
+          <div className="mt-2.5 flex flex-wrap gap-1.5">{actions}</div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ToastButton({
+  children,
+  onClick,
+  primary,
+  disabled,
+  ariaLabel,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      className={cn(
+        "rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97] disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none",
+        primary
+          ? "bg-[#0070eb] text-white shadow-sm hover:bg-[#0058bc]"
+          : "border border-[#e5e5ea] bg-white text-[#414755] hover:border-[#0070eb]/40 hover:text-[#0058bc]",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Toast-driven update flow (replaces the old modal):
+ * available → [Download] [Later] · downloading (MB progress, hideable) ·
+ * installed → [Restart now] [On next launch] · errors with retry.
+ * Everything is user-gated; nothing downloads, installs, or restarts alone.
+ */
+export function UpdateToasts({ updater }: { updater: ReturnType<typeof useUpdater> }) {
+  const { available, download, hideWorking } = updater;
+
+  return (
+    <div
+      aria-live="polite"
+      className="pointer-events-none fixed bottom-4 right-4 z-[70] flex flex-col items-end gap-2"
+    >
+      {available && download.kind === "idle" && (
+        <ToastShell
+          title={`Update available — v${available.version}`}
+          body="Stable channel. Downloads and installs only on your click."
+          icon={<DownloadSimple size={18} weight="bold" />}
+          actions={
+            <>
+              <ToastButton primary onClick={() => void updater.startDownload()}>
+                Download
+              </ToastButton>
+              <ToastButton onClick={updater.dismissUpdate} ariaLabel="Later">
+                Later
+              </ToastButton>
+            </>
+          }
+        />
+      )}
+
+      {download.kind === "working" && !hideWorking && (
+        <ToastShell
+          title="Downloading update…"
+          body={`${fmtBytes(download.bytes)} so far`}
+          icon={
+            <ArrowsClockwise size={18} weight="bold" className="animate-spin motion-reduce:animate-none" />
+          }
+          actions={
+            <ToastButton onClick={() => updater.setHideWorking(true)} ariaLabel="Hide download progress">
+              <span className="inline-flex items-center gap-1">
+                <X size={12} weight="bold" aria-hidden /> Hide
+              </span>
+            </ToastButton>
+          }
+        />
+      )}
+
+      {download.kind === "ready" && (
+        <ToastShell
+          title="Update installed"
+          body="Restart the app to start using it — now or whenever you quit."
+          tone="ready"
+          icon={<CheckCircle size={18} weight="bold" />}
+          actions={
+            <>
+              <ToastButton primary onClick={() => void updater.relaunchNow()}>
+                Restart now
+              </ToastButton>
+              <ToastButton onClick={updater.dismissUpdate} ariaLabel="Install on next launch">
+                On next launch
+              </ToastButton>
+            </>
+          }
+        />
+      )}
+
+      {download.kind === "failed" && (
+        <ToastShell
+          title="Update failed"
+          body={download.message}
+          tone="error"
+          icon={<X size={18} weight="bold" />}
+          actions={
+            <>
+              <ToastButton primary onClick={() => void updater.startDownload()}>
+                Retry
+              </ToastButton>
+              <ToastButton onClick={updater.dismissUpdate} ariaLabel="Dismiss update error">
+                Dismiss
+              </ToastButton>
+            </>
+          }
+        />
+      )}
     </div>
   );
 }
