@@ -412,6 +412,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(AppState {
             active_trip: Mutex::new(None),
             trips: Mutex::new(Vec::new()),

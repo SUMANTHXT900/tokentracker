@@ -9,6 +9,7 @@
     "dialog:default",
     "notification:default",
     "fs:default",
-    "process:default"
+    "process:default",
+    "window-state:default"
   ]
 }
