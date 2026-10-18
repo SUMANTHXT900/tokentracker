@@ -58,5 +58,49 @@ jobs:
           releaseDraft: false
           prerelease: false
 
+      # tauri-action sometimes skips the updater payload ("Signature not found
+      # for the updater JSON"). This step builds latest.json deterministically
+      # from the freshly signed NSIS bundle and uploads every updater artifact,
+      # so the in-app updater can never be left without its feed.
+      - name: Publish updater artifacts (latest.json + nsis.zip + sigs)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          node -e '
+          const fs = require("fs");
+          const path = require("path");
+          const cp = require("child_process");
+          const repo = "SUMANTHXT900/tokentracker";
+          const tag = process.env.TAG;
+          const dir = "src-tauri/target/release/bundle/nsis";
+          const files = fs.readdirSync(dir);
+          const zip = files.find((f) => f.endsWith(".nsis.zip"));
+          if (!zip) { console.error("nsis.zip not found in " + dir); process.exit(1); }
+          const sig = fs.readFileSync(path.join(dir, zip + ".sig"), "utf8").trim();
+          if (!sig) { console.error("empty signature for " + zip); process.exit(1); }
+          const latest = {
+            version: tag,
+            notes: "tokentracker " + tag,
+            pub_date: new Date().toISOString(),
+            platforms: {
+              "windows-x86_64": {
+                signature: sig,
+                url: "https://github.com/" + repo + "/releases/download/" + tag + "/" + zip,
+              },
+            },
+          };
+          fs.writeFileSync("latest.json", JSON.stringify(latest, null, 2) + "\n");
+          console.log("latest.json -> " + latest.platforms["windows-x86_64"].url);
+          cp.execSync(
+            "gh release upload " + tag +
+            " \"" + path.join(dir, zip) + "\"" +
+            " \"" + path.join(dir, zip) + ".sig\"" +
+            " latest.json --clobber --repo " + repo,
+            { stdio: "inherit" },
+          );
+          '
+
       # tauri-action uploads bundles + generates latest.json for the updater.
       # Updater payload is version+arch only (no telemetry) — see ARCHITECTURE.md §4.
