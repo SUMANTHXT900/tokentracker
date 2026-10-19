@@ -27,7 +27,7 @@ Local-first desktop telemetry for AI coding-agent spend. No accounts. No cloud. 
 
 1. Click **Download** above — it opens the latest release page.
 2. Download the `tokentracker_*_x64-setup.exe` installer
-   (direct link for this version: [tokentracker_0.2.0_x64-setup.exe](https://github.com/SUMANTHXT900/tokentracker/releases/download/v0.2.0/tokentracker_0.2.0_x64-setup.exe)).
+   (direct link for this version: [tokentracker_0.3.0_x64-setup.exe](https://github.com/SUMANTHXT900/tokentracker/releases/download/v0.3.0/tokentracker_0.3.0_x64-setup.exe)).
 3. Run it. Windows SmartScreen may ask on first install — click **More info → Run anyway**.
 4. Launch TokenTracker — it picks up your existing agent logs automatically and starts tracking.
 
