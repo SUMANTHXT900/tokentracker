@@ -12,13 +12,10 @@
     "core:window:allow-close",
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
-    "core:window:allow-set-size",
-    "core:window:allow-center",
     "updater:default",
     "dialog:default",
     "notification:default",
     "fs:default",
-    "process:default",
-    "window-state:default"
+    "process:default"
   ]
 }

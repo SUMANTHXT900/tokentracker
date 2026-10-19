@@ -7,6 +7,7 @@ pub mod adapter;
 pub mod trip_worker;
 pub mod trips;
 pub mod watcher;
+pub mod window_state;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -422,7 +423,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .manage(window_state::WindowSession::default())
         .manage(AppState {
             active_trip: Mutex::new(None),
             trips: Mutex::new(Vec::new()),
@@ -431,6 +432,16 @@ pub fn run() {
         })
         .manage(watcher::WatcherState::default())
         .setup(|app| {
+            // Restore geometry while the window is still hidden (`visible:
+            // false` in tauri.conf.json), then show it already in its final
+            // state. Failure here must not leave the app invisible.
+            if let Err(err) = window_state::init(app.handle()) {
+                eprintln!("tokentracker: window state init failed: {err}");
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                }
+            }
+
             // Resolve + seed persisted trips BEFORE the worker starts, so a
             // trip left running across a restart resumes with its full window
             // (rows live in agent logs on disk; deltas recompute over them).
@@ -496,6 +507,13 @@ pub fn run() {
             stop_trip,
             get_trip,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tokentracker");
+        .build(tauri::generate_context!())
+        .expect("error while building tokentracker")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                if let Some(window) = app.get_webview_window("main") {
+                    window_state::save_window_state(app, &window);
+                }
+            }
+        });
 }

@@ -193,7 +193,7 @@ function BootOverlay() {
   }, []);
   return (
     <motion.div
-      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-canvas/95 px-6 text-center"
+      className="fixed inset-x-0 bottom-0 top-10 z-40 flex overflow-y-auto bg-canvas/95"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -201,32 +201,37 @@ function BootOverlay() {
       role="status"
       aria-label="Loading TokenTracker data"
     >
-      <span className="flex h-16 w-16 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-[#2f8bff] to-[#00459e] shadow-[0_12px_32px_-12px_rgba(0,112,235,0.5)]">
-        <Cube size={30} weight="duotone" className="text-white" aria-hidden />
-      </span>
-      <div>
-        <p className="font-display text-lg font-semibold tracking-tight text-ink">TokenTracker</p>
-        <p className="tnum mt-1 font-mono text-[11px] text-ink-3">
-          {stage === 0
-            ? "Reading local logs…"
-            : stage === 1
-              ? "Still reading — large log history…"
-              : "Taking longer than usual — retrying quietly…"}
+      {/* `m-auto` centers against the fixed layer itself (not the tall
+          document) and collapses to 0 when the content is taller, so short
+          windows scroll instead of clipping the logo. */}
+      <div className="m-auto flex w-full max-w-sm flex-col items-center gap-4 px-6 py-8 text-center">
+          <span className="flex h-16 w-16 items-center justify-center rounded-[1.25rem] bg-gradient-to-br from-[#2f8bff] to-[#00459e] shadow-[0_12px_32px_-12px_rgba(0,112,235,0.5)]">
+            <Cube size={30} weight="duotone" className="text-white" aria-hidden />
+          </span>
+          <div>
+            <p className="font-display text-lg font-semibold tracking-tight text-ink">TokenTracker</p>
+            <p className="tnum mt-1 font-mono text-[11px] text-ink-3">
+              {stage === 0
+                ? "Reading local logs…"
+                : stage === 1
+                  ? "Still reading — large log history…"
+                  : "Taking longer than usual — retrying quietly…"}
+            </p>
+          </div>
+          <div
+            className="h-1 w-44 overflow-hidden rounded-full bg-tray-deep"
+            aria-hidden
+          >
+            <motion.div
+              className="h-full w-1/2 rounded-full bg-primary"
+              animate={{ x: ["-100%", "300%"] }}
+              transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+            />
+          </div>
+        <p className="max-w-xs text-[11px] leading-relaxed text-ink-3">
+          Parsing ~60 agent formats on this machine. Your usage data never leaves this PC.
         </p>
       </div>
-      <div
-        className="h-1 w-44 overflow-hidden rounded-full bg-tray-deep"
-        aria-hidden
-      >
-        <motion.div
-          className="h-full w-1/2 rounded-full bg-primary"
-          animate={{ x: ["-100%", "300%"] }}
-          transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
-        />
-      </div>
-      <p className="max-w-xs text-[11px] leading-relaxed text-ink-3">
-        Parsing ~60 agent formats on this machine. Nothing leaves your PC.
-      </p>
     </motion.div>
   );
 }

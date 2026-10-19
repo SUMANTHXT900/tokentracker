@@ -30,7 +30,7 @@ Rules:
    - Resolve source paths per OS (macOS/Linux/Windows).
    - Normalize upstream row shape → local `UsageRecord { dedup_key, ts, model, input, output, cache_read, cache_write, cost_usd, source, session_id }`.
    - Own the **deferred cache** (`~/.tokentracker/cache.sqlite` or app-local-data): `file_cursor(path, mtime, offset, hash)` + `records(dedup_key PK, ...)`.
-   - Compute pricing via local `pricing.json` (user-editable, never fetched silently — see §4).
+   - Compute pricing via `tokscale-core`'s public catalogs (auto-fetched, 1-hour disk cache; optional local `custom-pricing.json` overrides — see §4).
    - Expose trip-mode filtering (baseline watermark, see §6).
 3. Upstream upgrades must not change `UsageRecord` schema without a migration + spec update here.
 
@@ -49,9 +49,9 @@ Defined in `src-tauri/src/commands.rs` (owned by backend worker). Frontend may o
 | `start_trip` | `{ name: string, scope: TripScope, stop: StopMode }` | `Trip` | See §6. Captures `baseline dedup_key` watermark. |
 | `stop_trip` | `{ trip_id: string }` | `Trip` | Manual stop. Computes deltas vs baseline. |
 | `get_trip` | `{ trip_id: string }` | `TripDetail { baseline, deltas, daily[] }` | Delta = records with `rowid > baseline_watermark` + scope filter. |
-| `get_settings` | `{}` | `{ pricing_path, watched_dirs[], auto_check_updates }` | Local only. |
-| `save_settings` | `{ patch: Partial<Settings> }` | `Settings` | Validates paths, never writes outside allowlist. |
-| `check_for_updates` | `{}` | `{ available: bool, version?: string }` | Thin wrapper over `tauri-plugin-updater`. No auto-install. |
+| `get_settings` | `{}` | — | Not registered; there is no persisted settings command. |
+| `save_settings` | `{ patch }` | — | Not registered. |
+| `check_for_updates` | — | — | Frontend-only: `src/updater.tsx` calls `check()` from `@tauri-apps/plugin-updater`; no Tauri command. |
 
 No `submit_*`, no `leaderboard_*`, no `telemetry_*` commands. Any PR adding one must update this doc + privacy section or be rejected.
 
@@ -72,22 +72,25 @@ Owned by frontend worker (`src/`). Canonical routes — do not add telemetry-gat
 | `/` | `src/routes/Dashboard.tsx` | Overview totals, daily bar, model donut, live badge (`usage://updated` subscriber). |
 | `/trips` | `src/routes/Trips.tsx` | Trip list + detail deltas. |
 | `/trips/new` | `src/routes/TripSetup.tsx` (modal or page) | Setup wizard: All vs specific clients, stop mode picker. See §6. |
-| `/settings` | `src/routes/Settings.tsx` | Watched dirs (read-only display), pricing editor, updater toggle. No account/login UI. |
+| `/settings` | `src/routes/Settings.tsx` | Watched dirs (read-only display), update status/check. No account/login UI. |
 
 State:
 
 - Data fetching via TanStack Query keyed `["usage", range]`, `["trip", id]`; invalidation only on `usage://updated` / `trip://stopped`.
 - No router-level analytics, no pageview beacons.
 
-## 4. Offline / privacy guarantee
+## 4. Network / privacy guarantee
 
 1. **No submit / leaderboard / telemetry.** Upstream `tokscale` TUI ships opt-in submit + leaderboard; we do **not** compile or expose those modules. `grep -r "submit\|leaderboard\|telemetry" src-tauri/src` must be empty in CI (add as lint step).
-2. **No background network except:**
-   - (a) Tauri updater check (`tauri-plugin-updater`): auto-checks once on launch (silent on failure) plus manual Settings → Updates → Check for updates. All downloads, installs, and restarts are user-gated toast actions — no silent installs. Payload is only **version + arch + target** per Tauri updater protocol, against our own GitHub Releases `latest.json`.
-   - (b) Optional manual pricing fetch — only when user clicks "Refresh pricing" in Settings, fetching a pinned JSON URL they can inspect/edit. Never automatic, never silent.
-3. **Filesystem scope:** Tauri FS capability limited to: app-local-data, `~/.codex`, `~/.claude`, user-chosen pricing file via dialog. No full-disk access, no `$HOME/**`.
-4. **No PII leaves device:** prompt text / session content is never read — only token counts, model names, timestamps, cost math. Adapter drops `message.content` fields at parse time.
-5. **Updates:** stable-only GitHub Releases (see `.github/workflows/release.yml`). No beta/nightly auto-channel.
+2. **Outbound network is limited to three functions:**
+   - **(a) Pricing catalogs — automatic.** Cost lookup is delegated to `tokscale-core`, which loads three public datasets and caches each on disk for **1 hour** (`pricing/cache.rs`, `CACHE_TTL_SECS = 3600`): LiteLLM (`raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`), OpenRouter (`openrouter.ai/api/v1/models`, then `openrouter.ai/api/v1/models/{id}/endpoints` for catalog entries whose prefix is in a static author map), and models.dev (`models.dev/api.json`). A cache entry older than 1h triggers a refresh on the next process that needs prices; any failed source degrades to its stale cache, so offline use keeps the last catalog. The loaded service is then held in memory for the life of that process. There is no user-triggered pricing refresh button.
+   - **(b) Update check — notify-only.** `tauri-plugin-updater` GETs `https://github.com/SUMANTHXT900/tokentracker/releases/latest/download/latest.json` once at launch and when the user clicks Settings → Updates → Check for updates. The URL has no `{{current_version}}` placeholder and no query parameters; the only client-derived value is the plugin's User-Agent (`tauri-plugin-updater/<plugin version>`). Downloads, installs, and restarts happen only after explicit user clicks; bundles are signature-verified.
+   - **(c) Google Fonts.** `index.html` loads CSS from `fonts.googleapis.com/css2` and WOFF2 files from `fonts.gstatic.com` for the UI typefaces. Plain asset requests; no app data.
+   - Nothing else: no analytics, crash reporting, telemetry, accounts, or other background calls.
+3. **No usage data is sent.** Pricing requests are catalog-only: the OpenRouter per-model calls iterate the full public `/models` response filtered by a static author-prefix map (`pricing/openrouter.rs::get_author_provider_name`), not the user's used models. No request includes a token count, cost, model-usage list, session ID/title, workspace/project name, path, or identifier. **Never sent to any server:** prompt/message content, session titles, token counts, costs, model usage, workspace/project names, file paths, API keys/credentials, or any user identifier.
+4. **Filesystem scope:** the backend reads known local agent-log roots (Codex, Claude, and the other supported `tokscale-core` clients) plus its own app-data/cache; optional `custom-pricing.json` is read from the config directory. No full-disk sweep, and file contents are never uploaded.
+5. **Local data stays local:** parsed rows (model, tokens, cost, timestamps, session ID/title, workspace label) are written only to the local cache and returned over local IPC. Prompt/message bodies are not part of `UsageSnapshotDTO`.
+6. **Updates:** stable-only GitHub Releases (see `.github/workflows/release.yml`). No beta/nightly auto-channel.
 
 ## 5. Live watcher design
 

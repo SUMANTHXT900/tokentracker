@@ -54,9 +54,26 @@ Plus: a **collapsible sidebar**, live file-watching (numbers update the moment y
 
 ## Privacy architecture
 
-- **100% local parsing** — SQLite and JSONL logs are read straight from disk. Nothing ever leaves the machine.
+- **100% local parsing** — SQLite and JSONL logs are read straight from disk. Your usage rows are never uploaded.
 - **No accounts, no analytics, no phone-home.** The only network the app ever touches is: Google Fonts (display), live pricing tables, and the GitHub Releases endpoint for update checks.
 - Updates install **only** on your explicit click, and every bundle is signature-verified before install.
+
+### Network
+
+TokenTracker makes a small, fixed set of outbound requests. None of them carry your usage data.
+
+| Destination | Trigger | Data sent |
+|---|---|---|
+| `raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` (LiteLLM) | Automatic pricing refresh when the local catalog copy is older than 1 hour | Plain GET; no body, query, or user data |
+| `openrouter.ai/api/v1/models` and `/models/{id}/endpoints` (OpenRouter) | Same pricing refresh; per-model calls walk the public model catalog | Plain GETs; model IDs come from OpenRouter's catalog, not your logs |
+| `models.dev/api.json` | Same pricing refresh | Plain GET; no user data |
+| `github.com/SUMANTHXT900/tokentracker/releases/latest/download/latest.json` | Once at launch, and when you click **Check for updates** | Plain GET; no version or query parameters; only the `tauri-plugin-updater/<version>` User-Agent |
+| GitHub Releases asset URL from `latest.json` | Only when you click **Download** or **Install** | Request for the signed update bundle; no usage data |
+| `fonts.googleapis.com`, `fonts.gstatic.com` | Window load, for the UI typefaces | Standard font CSS/WOFF2 GETs; no usage data |
+
+**Never sent:** prompts or message content, session titles, token counts, costs, model usage, workspace/project names, file paths, API keys/credentials, or any user identifier.
+
+Pricing is cached on disk for 1 hour. At launch, if the cached catalog is older than that, it is refreshed automatically — no "refresh" click needed — so an online launch starts from data at most about an hour old, comfortably inside the 3-hour target. A session left running keeps its loaded catalog until restart. Offline, the last cached catalog (which may be older) is used instead of failing. Update checks are notify-only: nothing downloads, installs, or restarts without your click. During `npm run dev` only, a local Vite bridge on `localhost:1420` serves snapshot data to the browser; it is not part of the packaged app and never leaves the machine.
 
 ## Tech stack
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Copy, Minus, Square, X } from "@phosphor-icons/react";
-import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { cn } from "../lib/cn";
 
 function hasTauriIpc(): boolean {
@@ -59,27 +59,16 @@ export default function Titlebar() {
   };
   const toggleMaximize = async () => {
     try {
-      const win = getCurrentWindow();
-      const m = await win.isMaximized();
+      const w = getCurrentWindow();
+      const m = await w.isMaximized();
+      // The backend tracks the windowed bounds separately from the maximized
+      // state, so native maximize/unmaximize always restores a sane rect.
       if (m) {
-        // Native semantics: restore returns to the pre-maximize windowed
-        // rect. If the saved restore bounds are broken (≈ fullscreen, e.g.
-        // recorded while maximized), unmaximize lands near-fullscreen —
-        // detect that and fall back to the default centered window instead.
-        const before = await win.outerSize();
-        await win.unmaximize();
-        await new Promise((r) => setTimeout(r, 150));
-        const after = await win.outerSize();
-        const dx = Math.abs(after.width - before.width);
-        const dy = Math.abs(after.height - before.height);
-        if (dx < 24 && dy < 24) {
-          await win.setSize(new LogicalSize(1100, 720));
-          await win.center();
-        }
+        await w.unmaximize();
       } else {
-        await win.maximize();
+        await w.maximize();
       }
-      setMaximized(await win.isMaximized().catch(() => !m));
+      setMaximized(await w.isMaximized().catch(() => !m));
     } catch (e) {
       fail(e);
     }
@@ -90,10 +79,10 @@ export default function Titlebar() {
       aria-label="Window controls"
       className="sticky top-0 z-50 flex h-10 w-full shrink-0 items-stretch bg-card/80 backdrop-blur-xl"
     >
-      {/* Drag region + brand (double-click toggles maximize, like native). */}
+      {/* Drag region + brand ("deep" keeps logo/text draggable; Tauri's
+          native handler also toggles maximize on double-click). */}
       <div
-        data-tauri-drag-region
-        onDoubleClick={() => void toggleMaximize()}
+        data-tauri-drag-region="deep"
         className="flex min-w-0 flex-1 cursor-default items-center gap-2 pl-3"
       >
         <svg viewBox="0 0 32 32" className="h-[18px] w-[18px] shrink-0" aria-hidden>

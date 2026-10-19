@@ -150,6 +150,13 @@ fn load_user_tokscale_settings() -> (tokscale_core::scanner::ScannerSettings, to
 /// Scan local agent clients via `tokscale-core` and aggregate using `tokscale`
 /// TUI's exact rules (`GroupBy::Model`, `model_name_for_grouping`,
 /// `workspace_bucket` with `WorktreeRollup::MergeIntoRepo`).
+///
+/// Pricing note: cost estimation is delegated to `tokscale-core`, which loads
+/// public pricing catalogs (LiteLLM, OpenRouter, models.dev) and caches them on
+/// disk for 1 hour (`pricing::cache::CACHE_TTL_SECS = 3600`), falling back to
+/// the stale cache offline. Those are catalog-only requests: no rows, token
+/// counts, costs, model usage, session titles, workspace names, or paths from
+/// this scan are included.
 pub async fn parse_to_snapshot_async(
     home: Option<String>,
     clients: Option<Vec<String>>,
