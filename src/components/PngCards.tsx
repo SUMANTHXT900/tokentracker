@@ -1268,7 +1268,7 @@ function Group({
           {title}
         </span>
         {hint ? (
-          <span className="tnum max-w-[45%] truncate text-right font-mono text-[11px] text-[#717786]">
+          <span className="tnum max-w-[45%] truncate text-right font-mono text-[11px] text-ink-3">
             {hint}
           </span>
         ) : null}
@@ -1349,6 +1349,10 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
     () => buildCardData(snap, metric, aspect.maxBuckets),
     [snap, metric, aspect.maxBuckets],
   );
+  // Sanitized for SVG IRI refs (`url(#…)`) — a raw "1:1" colon in the
+  // gradient id failed to resolve under some renderers and dropped the
+  // sparkline fill/stroke. Pixel output unchanged: ids are never painted.
+  const sparkUid = `ttc-${aspectId.replace(":", "x")}-${themeId}`;
 
   useEffect(() => {
     const el = previewRef.current;
@@ -1516,7 +1520,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
           layout={layout}
           width={layout.twoCol ? colRight : innerW}
           metric={metric}
-          uid={`ttc-${aspectId}-${themeId}`}
+          uid={sparkUid}
         />
       ) : null}
       {layers.models ? (
@@ -1548,7 +1552,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
                 v2.4 EXPORT
               </span>
             </div>
-            <p className="mt-0.5 max-w-md truncate text-[12px] leading-relaxed text-[#717786]">
+            <p className="mt-0.5 max-w-md truncate text-[12px] leading-relaxed text-ink-3">
               Configure the snapshot, then pull a pixel-exact PNG — rendered locally.
             </p>
           </div>
@@ -1647,7 +1651,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
                 <h4 className="text-[15px] font-semibold tracking-tight text-[#1c1c1e]">
                   Card Styler
                 </h4>
-                <p className="mt-0.5 text-[12px] text-[#717786]">
+                <p className="mt-0.5 text-[12px] text-ink-3">
                   Configure preview snapshot parameters
                 </p>
               </div>
@@ -1733,7 +1737,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
                     <span className="mt-1.5 block text-[11px] font-semibold text-[#1c1c1e]">
                       {t.name}
                     </span>
-                    <span className="block text-[9.5px] leading-tight text-[#717786]">{t.blurb}</span>
+                    <span className="block text-[9.5px] leading-tight text-ink-3">{t.blurb}</span>
                   </button>
                 );
               })}
@@ -1775,7 +1779,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
 
           <Group icon={<span className="font-mono text-[11px] leading-none" aria-hidden>@</span>} title="Attribution & Workspace Tag">
             <div className="flex items-center gap-1 rounded-xl border border-[#e5e5ea] bg-[#f4f3f8] px-2.5 py-1.5 transition-all duration-300 ease-out focus-within:border-[#0070eb] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#0070eb]/20 motion-reduce:transition-none">
-              <span className="font-mono text-[12px] font-medium text-[#717786]" aria-hidden>@</span>
+              <span className="font-mono text-[12px] font-medium text-ink-3" aria-hidden>@</span>
               <input
                 value={handle}
                 onChange={(e) => setHandle(e.target.value.replace(/\s+/g, " ").slice(0, 28))}
@@ -1884,7 +1888,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
                 {status.text}
               </p>
             ) : (
-              <p className="px-1 text-[11px] leading-snug text-[#717786]">
+              <p className="px-1 text-[11px] leading-snug text-ink-3">
                 Copy uses the system clipboard. Download writes a {aspect.outW} by {aspect.outH}{" "}
                 PNG.
               </p>
@@ -1906,12 +1910,12 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
               <span className="tnum rounded-full border border-[#e5e5ea] bg-[#f4f3f8] px-2 py-0.5 font-mono text-[11px] text-[#414755]">
                 {aspect.outW} by {aspect.outH} at 3×
               </span>
-              <span className="text-[11px] text-[#717786]">
+              <span className="text-[11px] text-ink-3">
                 {aspect.platform.replace(" · ", ", ")}
               </span>
             </div>
             <div className="flex min-w-0 items-center gap-1 rounded-full border border-[#e5e5ea] bg-[#f4f3f8] p-1" role="group" aria-label="Preview zoom">
-              <CornersOut size={13} weight="bold" className="ml-1.5 mr-0.5 shrink-0 text-[#717786]" aria-hidden />
+              <CornersOut size={13} weight="bold" className="ml-1.5 mr-0.5 shrink-0 text-ink-3" aria-hidden />
               {(["fit", 100, 50] as const).map((z) => (
                 <button
                   key={String(z)}
@@ -1922,7 +1926,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
                   className={`tnum rounded-full border px-2.5 py-1 font-mono text-[11px] transition-all duration-300 ease-out active:scale-[0.97] motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
                     zoom === z
                       ? "border-[#0070eb]/30 bg-white font-semibold text-[#0058bc] shadow-sm"
-                      : "border-transparent text-[#717786] hover:text-[#1a1b1f]"
+                      : "border-transparent text-ink-3 hover:text-[#1a1b1f]"
                   }`}
                 >
                   {z === "fit" ? "Fit" : `${z}%`}
@@ -2064,7 +2068,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
             </div>
           </div>
 
-          <p className="tnum mt-3 flex flex-wrap items-center gap-1.5 px-1 font-mono text-[11px] leading-relaxed text-[#717786]" role="status">
+          <p className="tnum mt-3 flex flex-wrap items-center gap-1.5 px-1 font-mono text-[11px] leading-relaxed text-ink-3" role="status">
             <span className="rounded-full border border-[#e5e5ea] bg-white px-2 py-0.5">
               Capture {aspect.w} × {aspect.h} px
             </span>

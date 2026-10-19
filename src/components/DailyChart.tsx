@@ -50,36 +50,53 @@ const TOKEN_SERIES: { key: TokenSeriesKey; label: string; color: string }[] = [
  * backend rollup ships per-day breakdowns (missing fields read as 0).
  */
 function tokenSeriesValue(d: DailyDTO, key: TokenSeriesKey): number {
-  if (key === "total") return d.tokens;
+  if (key === "total") return toFinite(d.tokens);
   const b = d as DailyDTO & Partial<Record<"input" | "output" | "cache_read", number>>;
-  if (key === "input") return Math.max(0, b.input ?? 0);
-  if (key === "cache") return Math.max(0, b.cache_read ?? 0);
-  return Math.max(0, b.output ?? 0);
+  if (key === "input") return Math.max(0, toFinite(b.input));
+  if (key === "cache") return Math.max(0, toFinite(b.cache_read));
+  return Math.max(0, toFinite(b.output));
 }
 
 /** "2026-10-18" → "Oct 18" (parsed naively to dodge timezone drift). */
-function fmtDayLabel(date: string): string {
+function fmtDayLabel(date: unknown): string {
+  if (typeof date !== "string") return "—";
   const parts = date.split("-");
+  if (parts.length < 3) return date;
   const m = Number(parts[1]);
   const d = Number(parts[2]);
-  return `${MONTHS[(m - 1 + 12) % 12] ?? parts[1]} ${d}`;
+  if (!Number.isFinite(m) || !Number.isFinite(d)) return date;
+  return `${MONTHS[((m - 1) % 12 + 12) % 12] ?? parts[1]} ${d}`;
+}
+
+function toFinite(n: unknown): number {
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
 }
 
 function metricValue(d: DailyDTO, metric: Metric): number {
-  return metric === "tokens" ? d.tokens : metric === "cost" ? d.cost : d.messages;
+  const v = metric === "tokens" ? d.tokens : metric === "cost" ? d.cost : d.messages;
+  return toFinite(v);
 }
 
 function fmtMetric(v: number, metric: Metric): string {
   return metric === "cost" ? fmtCost(v) : fmtTokens(v);
 }
 
-/** rAF count-up, instant when the user prefers reduced motion. */
+/** rAF count-up from the previously displayed value (never flashes from 0
+ *  on refetch or metric switch), instant when the user prefers reduced motion. */
 function useCountUp(target: number, duration = 900): number {
-  const reduceMotion = useReducedMotion();
-  const [value, setValue] = useState(() => (reduceMotion ? target : 0));
+  const reduceMotion = useReducedMotion() ?? false;
+  const safeTarget = typeof target === "number" && Number.isFinite(target) ? target : 0;
+  const [value, setValue] = useState(() => (reduceMotion ? safeTarget : 0));
+  const shownRef = useRef<number | null>(null);
   useEffect(() => {
     if (reduceMotion) {
-      setValue(target);
+      shownRef.current = safeTarget;
+      setValue(safeTarget);
+      return;
+    }
+    const from = shownRef.current ?? 0;
+    if (from === safeTarget) {
+      setValue(safeTarget);
       return;
     }
     let raf = 0;
@@ -87,12 +104,14 @@ function useCountUp(target: number, duration = 900): number {
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
-      setValue(target * eased);
+      const v = from + (safeTarget - from) * eased;
+      shownRef.current = v;
+      setValue(v);
       if (t < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [target, duration, reduceMotion]);
+  }, [safeTarget, duration, reduceMotion]);
   return value;
 }
 
@@ -117,32 +136,48 @@ export default function DailyChart({
   const [metric, setMetric] = useState<Metric>("tokens");
   // Multi-series selection (Tokens mode). Hooks stay above every early return.
   const [activeSeries, setActiveSeries] = useState<TokenSeriesKey[]>(["total"]);
-  const reduceMotion = useReducedMotion();
-  const hasData = days.length > 0;
+  const reduceMotion = useReducedMotion() ?? false;
+  // Defensive: parent may pass undefined/null mid-fetch; never let .length throw.
+  const safeDays: DailyDTO[] = Array.isArray(days) ? days : [];
+  const hasData = safeDays.length > 0;
   // Hooks must run unconditionally (Rules of Hooks): compute + animate
   // before any early return so hook order never shifts between renders.
-  const totalValue = days.reduce((a, d) => a + metricValue(d, metric), 0);
+  const totalValue = safeDays.reduce((a, d) => a + metricValue(d, metric), 0);
   const animatedTotal = useCountUp(totalValue);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || days.length === 0) {
+    if (!el || safeDays.length === 0) {
       // Detached-DOM fix: always tear the instance down when the series goes
       // empty so a later mount re-initializes cleanly on the fresh element.
-      chartRef.current?.dispose();
+      try {
+        chartRef.current?.dispose();
+      } catch {
+        // ECharts may throw on double-dispose; safe to ignore.
+      }
       chartRef.current = null;
       return;
     }
     // If the container element was remounted, drop the stale instance.
     if (chartRef.current && chartRef.current.getDom() !== el) {
-      chartRef.current.dispose();
+      try {
+        chartRef.current.dispose();
+      } catch {
+        // ignore stale-instance teardown errors
+      }
       chartRef.current = null;
     }
-    if (!chartRef.current) chartRef.current = echarts.init(el);
+    try {
+      if (!chartRef.current) chartRef.current = echarts.init(el);
+    } catch {
+      chartRef.current = null;
+      return;
+    }
     const chart = chartRef.current;
+    if (!chart || chart.isDisposed?.()) return;
     const style = METRIC_STYLE[metric];
 
-    const sorted = [...days].sort((a, b) => (a.date < b.date ? -1 : 1));
+    const sorted = [...safeDays].sort((a, b) => (a.date < b.date ? -1 : 1));
     const values = sorted.map((d) => metricValue(d, metric));
     const total = values.reduce((a, v) => a + v, 0);
     const avg = values.length > 0 ? total / values.length : 0;
@@ -226,7 +261,8 @@ export default function DailyChart({
           },
         ];
 
-    chart.setOption(
+    try {
+      chart.setOption(
       {
         backgroundColor: "transparent",
         animation: !reduceMotion,
@@ -239,12 +275,13 @@ export default function DailyChart({
         tooltip: {
           trigger: "axis",
           confine: true,
+          appendToBody: false,
           backgroundColor: "#FFFFFF",
           borderColor: "#E4E1E8",
           borderWidth: 1,
           padding: [10, 12],
           extraCssText:
-            "border-radius: 12px; box-shadow: 0 12px 32px -12px rgba(0,0,0,0.18);",
+            "border-radius: 12px; box-shadow: 0 12px 32px -12px rgba(0,0,0,0.18);max-width:280px;white-space:normal;",
           textStyle: { color: "#1b1b1d", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" },
           axisPointer: { lineStyle: { color: "rgba(0,88,188,0.35)" }, type: "line" },
           formatter: (params: unknown) => {
@@ -265,7 +302,7 @@ export default function DailyChart({
                 : [
                     ["Tokens", fmtTokens(day.tokens), "#0070eb"],
                     ["Spend", fmtCost(day.cost), "#D97706"],
-                    ["Messages", `${day.messages.toLocaleString()}`, "#717786"],
+                    ["Messages", `${toFinite(day.messages).toLocaleString()}`, "#717786"],
                   ];
             return `
               <div style="min-width:168px;font-family:'JetBrains Mono',monospace">
@@ -318,47 +355,77 @@ export default function DailyChart({
       },
       { notMerge: true },
     );
-  }, [days, metric, reduceMotion, activeSeries]);
+    } catch {
+      // Never let a chart option error blank the page; empty state covers it.
+    }
+  }, [safeDays, metric, reduceMotion, activeSeries]);
 
   // Container-driven resize: sidebar / layout changes flow to the chart.
   // ResizeObserver covers container shifts; window listener covers viewport
   // zoom / scrollbar changes ECharts can't observe on the div alone.
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      chartRef.current?.resize();
-    });
-    ro.observe(el);
-    const onWindowResize = () => chartRef.current?.resize();
+    if (!el || !hasData) return;
+    let ro: ResizeObserver | null = null;
+    try {
+      ro = new ResizeObserver(() => {
+        try {
+          if (chartRef.current && !chartRef.current.isDisposed?.()) {
+            chartRef.current.resize();
+          }
+        } catch {
+          // resize on a torn-down instance must not crash the page
+        }
+      });
+      ro.observe(el);
+    } catch {
+      ro = null;
+    }
+    const onWindowResize = () => {
+      try {
+        if (chartRef.current && !chartRef.current.isDisposed?.()) {
+          chartRef.current.resize();
+        }
+      } catch {
+        // ignore
+      }
+    };
     window.addEventListener("resize", onWindowResize);
     return () => {
-      ro.disconnect();
+      try {
+        ro?.disconnect();
+      } catch {
+        // ignore
+      }
       window.removeEventListener("resize", onWindowResize);
     };
   }, [hasData]);
 
   useEffect(() => {
     return () => {
-      chartRef.current?.dispose();
+      try {
+        chartRef.current?.dispose();
+      } catch {
+        // ignore double-dispose races (StrictMode / fast remount)
+      }
       chartRef.current = null;
     };
   }, []);
 
-  if (loading && days.length === 0) return <ChartSkeleton />;
-  if (days.length === 0) {
+  if (loading && safeDays.length === 0) return <ChartSkeleton />;
+  if (safeDays.length === 0) {
     return (
       <div className="rounded-2xl border border-[#E4E1E8] bg-white p-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
         <div className="flex h-72 flex-col items-center justify-center rounded-xl border border-dashed border-[#E4E1E8] bg-[#FAFAFC]">
           <p className="font-sans text-[13px] text-[#414755]">No activity in this range</p>
-          <p className="mt-1 font-sans text-[12px] text-[#717786]">Try clearing filters or scanning again</p>
+          <p className="mt-1 font-sans text-[12px] text-ink-3">Try clearing filters or scanning again</p>
         </div>
       </div>
     );
   }
 
-  const avgValue = totalValue / days.length;
-  const peak = days.reduce<DailyDTO | null>(
+  const avgValue = safeDays.length > 0 ? totalValue / safeDays.length : 0;
+  const peak = safeDays.reduce<DailyDTO | null>(
     (best, d) => (!best || metricValue(d, metric) > metricValue(best, metric) ? d : best),
     null,
   );
@@ -367,9 +434,9 @@ export default function DailyChart({
   // A toggle is usable only when at least one day carries that breakdown.
   const tokenAvailability: Record<TokenSeriesKey, boolean> = {
     total: true,
-    input: days.some((d) => tokenSeriesValue(d, "input") > 0),
-    cache: days.some((d) => tokenSeriesValue(d, "cache") > 0),
-    output: days.some((d) => tokenSeriesValue(d, "output") > 0),
+    input: safeDays.some((d) => tokenSeriesValue(d, "input") > 0),
+    cache: safeDays.some((d) => tokenSeriesValue(d, "cache") > 0),
+    output: safeDays.some((d) => tokenSeriesValue(d, "output") > 0),
   };
 
   return (
@@ -422,7 +489,7 @@ export default function DailyChart({
                       "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-sans text-[11px] font-medium transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0058bc] active:scale-[0.97] disabled:cursor-not-allowed",
                       on && avail
                         ? "border-[#D8D3E0] bg-white text-[#1b1b1d] shadow-sm"
-                        : "border-[#E4E1E8] bg-transparent text-[#717786] hover:text-[#1b1b1d]",
+                        : "border-[#E4E1E8] bg-transparent text-ink-3 hover:text-[#1b1b1d]",
                       !avail && "opacity-40",
                     )}
                   >
@@ -475,7 +542,7 @@ export default function DailyChart({
         <span>
           <span className="font-sans text-[#626267]">avg </span>
           <span className="text-[#414755]">{fmtMetric(avgValue, metric)}</span>
-          <span className="font-sans text-[#717786]"> per day</span>
+          <span className="font-sans text-ink-3"> per day</span>
         </span>
         {peak && (
           <>
@@ -488,7 +555,7 @@ export default function DailyChart({
                   ? fmtCost(peak.cost)
                   : metric === "tokens"
                     ? fmtTokens(peak.tokens)
-                    : peak.messages.toLocaleString()}
+                    : toFinite(peak.messages).toLocaleString()}
               </span>
             </span>
           </>

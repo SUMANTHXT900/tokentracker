@@ -31,8 +31,20 @@ pub fn start_trip_worker(app: AppHandle) {
             }
 
             for trip in candidates {
-                let reason = if trip.stop_mode == "after" {
-                    crate::trips::check_auto_stop(&trip, now_ms(), None)
+                // Single clock read per trip so the check and the close agree.
+                let now = now_ms();
+                let (reason, ended_at) = if trip.stop_mode == "after" {
+                    match crate::trips::check_auto_stop(&trip, now, None) {
+                        Some(reason) => {
+                            // Retroactive close at the deadline (matches
+                            // `reconcile_on_startup`), not at the 60s tick.
+                            let deadline = trip
+                                .started_at_ms
+                                .saturating_add(trip.stop_after_ms.unwrap_or(0).max(0));
+                            (Some(reason), deadline)
+                        }
+                        None => (None, 0),
+                    }
                 } else if trip.stop_mode == "idle" {
                     // Idle needs last activity: scan trip-scoped rows, take max ts.
                     // One priced scan per idle trip per minute (only while active).
@@ -52,46 +64,75 @@ pub fn start_trip_worker(app: AppHandle) {
                             .max(),
                         Err(_) => None,
                     };
-                    crate::trips::check_auto_stop(&trip, now_ms(), last)
+                    match crate::trips::check_auto_stop(&trip, now, last) {
+                        Some(reason) => {
+                            let anchor = last.unwrap_or(trip.started_at_ms);
+                            let deadline =
+                                anchor.saturating_add(trip.idle_after_ms.unwrap_or(0).max(0));
+                            (Some(reason), deadline.min(now))
+                        }
+                        None => (None, 0),
+                    }
                 } else {
-                    None
+                    (None, 0)
                 };
 
                 if let Some(reason) = reason {
-                    // Mark stopped.
+                    // Mark stopped. Each mutex is locked in its own scope and
+                    // released before the next is acquired (trips → active →
+                    // persist's internal trips → active), matching the order
+                    // in `persist_trips`, so no lock inversion is possible.
+                    // Skip trips that raced us (e.g. manual stop won): never
+                    // overwrite an existing end time or emit a duplicate event.
                     let stopped_id = {
                         let state = match app.try_state::<crate::AppState>() {
                             Some(s) => s,
                             None => continue,
                         };
-                        let mut trips = match state.trips.lock() {
-                            Ok(g) => g,
-                            Err(_) => continue,
-                        };
+                        let mut trips = state
+                            .trips
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner());
                         match trips.iter_mut().find(|t| t.id == trip.id) {
                             Some(t) => {
-                                *t = crate::trips::trip_stop_now(t.clone(), Some(reason.clone()));
-                                t.id.clone()
+                                if t.ended_at_ms.is_some() {
+                                    None
+                                } else {
+                                    *t = crate::trips::trip_stop_at(
+                                        t.clone(),
+                                        ended_at,
+                                        Some(reason.clone()),
+                                    );
+                                    Some(t.id.clone())
+                                }
                             }
-                            None => continue,
+                            None => None,
                         }
+                    };
+                    let stopped_id = match stopped_id {
+                        Some(id) => id,
+                        None => continue,
                     };
                     // Clear active if it matches.
                     if let Some(state) = app.try_state::<crate::AppState>() {
-                        if let Ok(mut active) = state.active_trip.lock() {
-                            if active.as_ref().map(|a| a.id.as_str()) == Some(stopped_id.as_str()) {
-                                *active = None;
-                            }
+                        let mut active = state
+                            .active_trip
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner());
+                        if active.as_ref().map(|a| a.id.as_str()) == Some(stopped_id.as_str()) {
+                            *active = None;
                         }
+                    }
+                    // Persist BEFORE emitting: a crash between emit and
+                    // persist previously left disk still "active", resurrecting
+                    // the trip on restart after the UI already showed stopped.
+                    if let Some(state) = app.try_state::<crate::AppState>() {
+                        crate::persist_trips(&state);
                     }
                     let _ = app.emit(
                         "trip://stopped",
                         serde_json::json!({ "trip_id": stopped_id, "reason": reason }),
                     );
-                    // Persist the auto-stop so restarts see the closed trip.
-                    if let Some(state) = app.try_state::<crate::AppState>() {
-                        crate::persist_trips(&state);
-                    }
                     // Best-effort OS notification (silent fail in browser/dev).
                     #[cfg(desktop)]
                     {

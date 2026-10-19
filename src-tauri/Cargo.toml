@@ -5,7 +5,7 @@ edition = "2021"
 description = "tokentracker — local token usage tracker (Tauri 2 backend)"
 authors = ["tokentracker"]
 license = "MIT"
-repository = "https://github.com/USER/tokentracker"
+repository = "https://github.com/SUMANTHXT900/tokentracker"
 rust-version = "1.77"
 
 [build-dependencies]

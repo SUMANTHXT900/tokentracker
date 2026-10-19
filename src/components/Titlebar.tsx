@@ -88,7 +88,7 @@ export default function Titlebar() {
   return (
     <header
       aria-label="Window controls"
-      className="relative flex h-10 shrink-0 items-stretch bg-card/80 backdrop-blur-xl"
+      className="sticky top-0 z-50 flex h-10 w-full shrink-0 items-stretch bg-card/80 backdrop-blur-xl"
     >
       {/* Drag region + brand (double-click toggles maximize, like native). */}
       <div

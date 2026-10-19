@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { CurrencyDollar, Database, Flame, TerminalWindow } from "@phosphor-icons/react";
 import type { DailyDTO, UsageSnapshotDTO } from "../lib/tauri";
@@ -8,13 +8,26 @@ import { cn } from "../lib/cn";
 
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 
-/** rAF count-up, instant when the user prefers reduced motion. */
+function toFiniteTotal(n: unknown): number {
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+}
+
+/** rAF count-up from the previously displayed value (never flashes from 0
+ *  on refetch), instant when the user prefers reduced motion. */
 function useCountUp(target: number, duration = 900): number {
-  const reduceMotion = useReducedMotion();
-  const [value, setValue] = useState(() => (reduceMotion ? target : 0));
+  const reduceMotion = useReducedMotion() ?? false;
+  const safeTarget = typeof target === "number" && Number.isFinite(target) ? target : 0;
+  const [value, setValue] = useState(() => (reduceMotion ? safeTarget : 0));
+  const shownRef = useRef<number | null>(null);
   useEffect(() => {
     if (reduceMotion) {
-      setValue(target);
+      shownRef.current = safeTarget;
+      setValue(safeTarget);
+      return;
+    }
+    const from = shownRef.current ?? 0;
+    if (from === safeTarget) {
+      setValue(safeTarget);
       return;
     }
     let raf = 0;
@@ -22,12 +35,14 @@ function useCountUp(target: number, duration = 900): number {
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
-      setValue(target * eased);
+      const v = from + (safeTarget - from) * eased;
+      shownRef.current = v;
+      setValue(v);
       if (t < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [target, duration, reduceMotion]);
+  }, [safeTarget, duration, reduceMotion]);
   return value;
 }
 
@@ -96,56 +111,80 @@ export default function KpiCards({
   isFetching?: boolean;
 }) {
   const reduceMotion = useReducedMotion() ?? false;
-  const animatedCost = useCountUp(snap?.total_cost ?? 0);
-  const animatedTokens = useCountUp(snap?.total_tokens ?? 0);
-  const animatedSessions = useCountUp(snap?.sessions.length ?? 0);
-  const animatedMessages = useCountUp(snap?.total_messages ?? 0);
-  const animatedActiveDays = useCountUp(
-    snap ? snap.daily.filter((d) => d.tokens > 0).length : 0,
-  );
+  // All hooks run before the `if (!snap)` return (Rules of Hooks). Targets
+  // use double optional-chaining: `snap?.sessions.length` would still throw
+  // when snap exists but sessions is undefined.
+  const totalCostTarget =
+    typeof snap?.total_cost === "number" && Number.isFinite(snap.total_cost)
+      ? snap.total_cost
+      : 0;
+  const totalTokensTarget =
+    typeof snap?.total_tokens === "number" && Number.isFinite(snap.total_tokens)
+      ? snap.total_tokens
+      : 0;
+  const sessionsTarget = snap?.sessions?.length ?? 0;
+  const messagesTarget =
+    typeof snap?.total_messages === "number" && Number.isFinite(snap.total_messages)
+      ? snap.total_messages
+      : 0;
+  const activeDaysTarget = snap?.daily?.filter((d) => (d?.tokens ?? 0) > 0).length ?? 0;
+  const animatedCost = useCountUp(totalCostTarget);
+  const animatedTokens = useCountUp(totalTokensTarget);
+  const animatedSessions = useCountUp(sessionsTarget);
+  const animatedMessages = useCountUp(messagesTarget);
+  const animatedActiveDays = useCountUp(activeDaysTarget);
 
   if (!snap) return <Skeleton />;
 
   // ── Data logic (verbatim from previous implementation) ──
-  const daily: DailyDTO[] = snap.daily;
-  const activeDays = daily.filter((d) => d.tokens > 0).length;
+  // Defensive array defaults: a partial backend payload must render zeros,
+  // never throw (thrown render errors blank the whole app).
+  const daily: DailyDTO[] = Array.isArray(snap.daily) ? snap.daily : [];
+  const models = Array.isArray(snap.models) ? snap.models : [];
+  const sessions = Array.isArray(snap.sessions) ? snap.sessions : [];
+  const projects = Array.isArray(snap.projects) ? snap.projects : [];
+  const clients: string[] = Array.isArray(snap.clients) ? snap.clients : [];
+  const totalCost = toFiniteTotal(snap.total_cost);
+  const totalTokens = toFiniteTotal(snap.total_tokens);
+  const totalMessages = toFiniteTotal(snap.total_messages);
+  const activeDays = daily.filter((d) => (d?.tokens ?? 0) > 0).length;
   const totalDays = daily.length;
-  const avgPerDay = activeDays > 0 ? snap.total_cost / activeDays : 0;
+  const avgPerDay = activeDays > 0 ? totalCost / activeDays : 0;
   const peak = daily.reduce<DailyDTO | null>(
-    (best, d) => (!best || d.cost > best.cost ? d : best),
+    (best, d) => (!best || (d?.cost ?? 0) > (best?.cost ?? 0) ? d : best),
     null,
   );
 
-  const cacheRead = snap.models.reduce((a, m) => a + (m.cache_read ?? 0), 0);
-  const plainInput = snap.models.reduce((a, m) => a + (m.input ?? 0), 0);
+  const cacheRead = models.reduce((a, m) => a + (m?.cache_read ?? 0), 0);
+  const plainInput = models.reduce((a, m) => a + (m?.input ?? 0), 0);
   const cacheDenom = cacheRead + plainInput;
   const cacheHit = cacheDenom > 0 ? cacheRead / cacheDenom : 0;
 
-  const totalIn = snap.models.reduce((a, m) => a + (m.input ?? 0) + (m.cache_read ?? 0), 0);
-  const totalOut = snap.models.reduce((a, m) => a + (m.output ?? 0), 0);
+  const totalIn = models.reduce((a, m) => a + (m?.input ?? 0) + (m?.cache_read ?? 0), 0);
+  const totalOut = models.reduce((a, m) => a + (m?.output ?? 0), 0);
 
-  const realProjectsCount = snap.projects.filter(
+  const realProjectsCount = projects.filter(
     (p) =>
-      !!p.workspace_key &&
+      !!p?.workspace_key &&
       p.workspace_key !== "(unknown)" &&
       p.workspace_label !== "(unknown)" &&
-      (p.sessions > 0 || p.tokens > 0),
+      ((p?.sessions ?? 0) > 0 || (p?.tokens ?? 0) > 0),
   ).length;
   const avgTokensPerSession =
-    snap.sessions.length > 0 ? snap.total_tokens / snap.sessions.length : 0;
+    sessions.length > 0 ? totalTokens / sessions.length : 0;
   const avgCostPerSession =
-    snap.sessions.length > 0 ? snap.total_cost / snap.sessions.length : 0;
+    sessions.length > 0 ? totalCost / sessions.length : 0;
 
-  const tok = splitTokens(reduceMotion ? snap.total_tokens : animatedTokens);
-  const costLabel = fmtCost(reduceMotion ? snap.total_cost : animatedCost);
-  const sessionLabel = Math.round(reduceMotion ? snap.sessions.length : animatedSessions).toLocaleString();
+  const tok = splitTokens(reduceMotion ? totalTokens : animatedTokens);
+  const costLabel = fmtCost(reduceMotion ? totalCost : animatedCost);
+  const sessionLabel = Math.round(reduceMotion ? sessions.length : animatedSessions).toLocaleString();
   const activeLabel = Math.round(reduceMotion ? activeDays : animatedActiveDays);
-  const msgLabel = Math.round(reduceMotion ? snap.total_messages : animatedMessages).toLocaleString();
+  const msgLabel = Math.round(reduceMotion ? totalMessages : animatedMessages).toLocaleString();
 
   const uptime = totalDays > 0 ? activeDays / totalDays : 0;
-  const peakShare = snap.total_cost > 0 && peak ? peak.cost / snap.total_cost : 0;
-  const visibleClients = snap.clients.slice(0, 4).map((c) => getClientVisual(c));
-  const overflowClients = Math.max(0, snap.clients.length - 4);
+  const peakShare = totalCost > 0 && peak ? (peak?.cost ?? 0) / totalCost : 0;
+  const visibleClients = clients.slice(0, 4).map((c) => getClientVisual(c));
+  const overflowClients = Math.max(0, clients.length - 4);
 
   return (
     <section aria-label="Totals">
@@ -161,7 +200,7 @@ export default function KpiCards({
               <span className="tnum font-mono text-[28px] font-semibold leading-[34px] tracking-[-0.02em] text-[#1b1b1d]">
                 {costLabel}
               </span>
-              <span className="font-sans text-[12px] text-[#717786]">USD</span>
+              <span className="font-sans text-[12px] text-ink-3">USD</span>
               {isFetching && (
                 <span
                   title="Syncing"
@@ -175,21 +214,22 @@ export default function KpiCards({
             <span className="tnum rounded-full bg-[#34C759]/[0.12] px-2 py-0.5 font-semibold text-[#006b27]">
               {activeDays > 0 ? `${fmtCost(avgPerDay)} / active day` : "no activity yet"}
             </span>
-            {peak && peak.cost > 0 && (
-              <span className="tnum text-[#717786]">Peak {fmtCost(peak.cost)}</span>
+            {peak && (peak?.cost ?? 0) > 0 && (
+              <span className="tnum text-ink-3">Peak {fmtCost(peak.cost)}</span>
             )}
           </div>
           <div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0EDEF]">
               <motion.div
-                initial={reduceMotion ? false : { width: 0 }}
-                whileInView={{ width: `${Math.min(100, Math.max(0, peakShare * 100))}%` }}
+                initial={reduceMotion ? false : { scaleX: 0 }}
+                whileInView={{ scaleX: 1 }}
                 viewport={{ once: true }}
                 transition={{ duration: 0.8, ease: EASE }}
-                className="h-full rounded-full bg-gradient-to-r from-[#0058bc] to-[#007AFF]"
+                style={{ width: `${Math.min(100, Math.max(0, peakShare * 100))}%` }}
+                className="h-full origin-left rounded-full bg-gradient-to-r from-[#0058bc] to-[#007AFF]"
               />
             </div>
-            <div className="tnum flex items-center justify-between pt-1 font-mono text-[10px] text-[#717786]">
+            <div className="tnum flex items-center justify-between pt-1 font-mono text-[10px] text-ink-3">
               <span>{fmtPct(peakShare)} peak-day share</span>
               <span>{totalDays > 0 ? `${activeDays}/${totalDays} days` : "—"}</span>
             </div>
@@ -208,7 +248,7 @@ export default function KpiCards({
                 {tok.num}
                 {tok.unit}
               </span>
-              <span className="font-sans text-[12px] text-[#717786]">aggregated stream</span>
+              <span className="font-sans text-[12px] text-ink-3">aggregated stream</span>
             </>
           }
         >
@@ -226,7 +266,7 @@ export default function KpiCards({
             <span className="font-sans text-[#414755]">Cache Hit Rate</span>
             <span className="font-semibold text-[#006b27]">{fmtPct(cacheHit)} cached</span>
           </div>
-          <p className="tnum font-mono text-[10px] text-[#717786]">{msgLabel} messages</p>
+          <p className="tnum font-mono text-[10px] text-ink-3">{msgLabel} messages</p>
         </Card>
 
         {/* Tile 3 — Sessions */}
@@ -240,7 +280,7 @@ export default function KpiCards({
               <span className="tnum font-mono text-[28px] font-semibold leading-[34px] tracking-[-0.02em] text-[#1b1b1d]">
                 {sessionLabel}
               </span>
-              <span className="font-sans text-[12px] text-[#717786]">invocations</span>
+              <span className="font-sans text-[12px] text-ink-3">invocations</span>
             </>
           }
         >
@@ -256,7 +296,7 @@ export default function KpiCards({
               {fmtCost(avgCostPerSession)} USD
             </span>
           </div>
-          <p className="tnum font-mono text-[10px] text-[#717786]">
+          <p className="tnum font-mono text-[10px] text-ink-3">
             {realProjectsCount} active workspace{realProjectsCount === 1 ? "" : "s"}
           </p>
         </Card>
@@ -272,7 +312,7 @@ export default function KpiCards({
               <span className="tnum font-mono text-[28px] font-semibold leading-[34px] tracking-[-0.02em] text-[#1b1b1d]">
                 {activeLabel} / {totalDays || "—"}
               </span>
-              <span className="font-sans text-[12px] text-[#717786]">{fmtPct(uptime)} uptime</span>
+              <span className="font-sans text-[12px] text-ink-3">{fmtPct(uptime)} uptime</span>
             </>
           }
         >
@@ -283,11 +323,13 @@ export default function KpiCards({
                 ? `${visibleClients[0].label}${overflowClients > 0 ? ` +${overflowClients}` : ""}`
                 : "no clients"}
             </span>
-            {peak && (
-              <span className="tnum text-[#717786]">
+            {peak && peak?.date && (
+              <span className="tnum text-ink-3">
                 Peak:{" "}
                 {(() => {
+                  if (typeof peak.date !== "string") return "—";
                   const parts = peak.date.split("-");
+                  if (parts.length < 3 || !parts[1] || !parts[2]) return peak.date;
                   return `${parts[1]}/${parts[2]}`;
                 })()}
               </span>
@@ -295,11 +337,12 @@ export default function KpiCards({
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0EDEF]">
             <motion.div
-              initial={reduceMotion ? false : { width: 0 }}
-              whileInView={{ width: `${Math.min(100, Math.max(0, uptime * 100))}%` }}
+              initial={reduceMotion ? false : { scaleX: 0 }}
+              whileInView={{ scaleX: 1 }}
               viewport={{ once: true }}
               transition={{ duration: 0.8, ease: EASE }}
-              className="h-full rounded-full bg-orange-500"
+              style={{ width: `${Math.min(100, Math.max(0, uptime * 100))}%` }}
+              className="h-full origin-left rounded-full bg-orange-500"
             />
           </div>
         </Card>

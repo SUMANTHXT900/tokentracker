@@ -27,39 +27,60 @@ pub struct AppState {
 /// Snapshot the in-memory trip state to disk (best-effort; logs on failure,
 /// never fails the calling command). Active trips are healed into the list
 /// so the legacy `cmd_trip_start` path (active-only) survives restarts too.
+///
+/// Locking: snapshots `trips` and `active_trip` in SEPARATE scopes (never
+/// nested) and heals with a re-checked short lock, always in the order
+/// trips → active. All other code paths take these mutexes one at a time in
+/// the same order, so no lock inversion (deadlock) is possible. Poisoned
+/// mutexes are recovered via `into_inner` instead of skipping the persist
+/// (skipping would silently lose data).
 pub fn persist_trips(state: &State<'_, AppState>) {
-    let path = match state.trips_file.lock().map(|g| g.clone()).unwrap_or(None) {
+    let path = match state
+        .trips_file
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
         Some(p) => p,
         None => return,
     };
-    let mut trips = match state.trips.lock() {
-        Ok(g) => g,
-        Err(_) => return,
-    };
-    let active = match state.active_trip.lock() {
-        Ok(g) => g.clone(),
-        Err(_) => return,
-    };
-    if let Some(ref a) = active {
-        if !trips.iter().any(|t| t.id == a.id) {
-            trips.push(a.clone());
+    // Snapshot without nesting: each lock is released before the next.
+    let trips_snapshot = state
+        .trips
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let active_snapshot = state
+        .active_trip
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    // Heal a legacy active-only trip into the in-memory list (re-check under
+    // the lock: two concurrent persists must not push duplicates).
+    if let Some(ref a) = active_snapshot {
+        if !trips_snapshot.iter().any(|t| t.id == a.id) {
+            let mut trips = state
+                .trips
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if !trips.iter().any(|t| t.id == a.id) {
+                trips.push(a.clone());
+            }
         }
     }
+    // Re-read the (possibly healed) list for the store so disk and memory agree.
+    let trips_for_store = state
+        .trips
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let store = trips::TripStoreFile {
-        trips: trips.clone(),
-        active_trip_id: active.map(|a| a.id),
+        trips: trips_for_store,
+        active_trip_id: active_snapshot.map(|a| a.id),
     };
-    drop(trips);
     if let Err(e) = trips::save_trips_file(&path, &store) {
         eprintln!("tokentracker: persist trips failed: {e}");
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct UpdateStatus {
-    pub available: bool,
-    pub version: Option<String>,
-    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,17 +279,6 @@ fn cmd_trip_stop(
     Ok(stopped)
 }
 
-/// Placeholder updater check. Wired to real `tauri-plugin-updater` later;
-/// currently always reports no update available.
-#[tauri::command]
-fn cmd_check_update() -> Result<UpdateStatus, String> {
-    Ok(UpdateStatus {
-        available: false,
-        version: None,
-        notes: None,
-    })
-}
-
 // --- Frontend trip API (src/lib/tauri.ts) ---
 
 #[tauri::command]
@@ -425,23 +435,48 @@ pub fn run() {
             // trip left running across a restart resumes with its full window
             // (rows live in agent logs on disk; deltas recompute over them).
             // Idle trips reconcile via the worker's first scan (~60s).
+            // `reconcile_on_startup` heals stale active ids (clears dangling
+            // ids, promotes the newest survivor) and retroactively closes
+            // `after` trips at their deadline, so the in-memory seed below
+            // never resurrects a trip that already expired while closed.
             if let Ok(dir) = app.path().app_data_dir() {
                 let path = dir.join("trips.json");
-                if let Ok(mut slot) = app.state::<AppState>().trips_file.lock() {
+                // Recover (don't skip) on poisoned mutex: skipping would boot
+                // with empty trips while valid data sits on disk.
+                // NOTE: `app.state()` returns a temporary guard, so bind it
+                // first — locking through the temporary directly drops it
+                // while the `MutexGuard` still borrows from it (E0716).
+                let app_state = app.state::<AppState>();
+                {
+                    let mut slot = app_state
+                        .trips_file
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
                     *slot = Some(path.clone());
                 }
                 let mut store = trips::load_trips_file(&path);
                 if trips::reconcile_on_startup(&mut store, chrono::Utc::now().timestamp_millis()) {
                     let _ = trips::save_trips_file(&path, &store);
                 }
+                // `reconcile` guarantees `active_trip_id` (when Some) points
+                // at a still-running trip, so this lookup can't resurrect a
+                // closed/stale id.
                 let active = store
                     .active_trip_id
                     .as_ref()
                     .and_then(|id| store.trips.iter().find(|t| t.id == *id).cloned());
-                if let Ok(mut trips) = app.state::<AppState>().trips.lock() {
+                {
+                    let mut trips = app_state
+                        .trips
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
                     *trips = store.trips;
                 }
-                if let Ok(mut slot) = app.state::<AppState>().active_trip.lock() {
+                {
+                    let mut slot = app_state
+                        .active_trip
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
                     *slot = active;
                 }
             }
@@ -460,7 +495,6 @@ pub fn run() {
             start_trip,
             stop_trip,
             get_trip,
-            cmd_check_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tokentracker");

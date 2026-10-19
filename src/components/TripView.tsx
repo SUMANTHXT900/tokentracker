@@ -112,8 +112,14 @@ export default function TripView({ tripId }: { tripId: string }) {
 
   const trip = detail?.trip;
   const d = detail?.deltas;
-  const startedMs = trip?.started_at ? new Date(trip.started_at).getTime() : now;
-  const elapsedMs = Math.max(0, now - startedMs);
+  // Stopwatch source: freeze at `stopped_at` once the trip ends instead of
+  // ticking forever, and never let an unparseable timestamp poison the
+  // readout (NaN flowed into fmtClock and rendered "NaN:NaN:NaN").
+  const startedRaw = trip?.started_at ? new Date(trip.started_at).getTime() : NaN;
+  const endedRaw = trip?.stopped_at ? new Date(trip.stopped_at).getTime() : NaN;
+  const startedMs = Number.isFinite(startedRaw) ? (startedRaw as number) : now;
+  const endMs = Number.isFinite(endedRaw) ? (endedRaw as number) : now;
+  const elapsedMs = Math.max(0, endMs - startedMs);
   const elapsed = fmtClock(elapsedMs);
   const startedLabel = trip?.started_at
     ? new Date(trip.started_at).toLocaleTimeString([], {
@@ -212,7 +218,7 @@ export default function TripView({ tripId }: { tripId: string }) {
               <h3 className="font-display mt-1.5 truncate text-xl font-semibold tracking-tight text-[#1a1b1f]">
                 {trip?.name ?? "Live focus"}
               </h3>
-              <p className="mt-0.5 text-[13px] text-[#717786]">
+              <p className="mt-0.5 text-[13px] text-ink-3">
                 Local proxy trip meter · recording token flow
               </p>
             </div>
@@ -258,7 +264,7 @@ export default function TripView({ tripId }: { tripId: string }) {
               a ~420px card column instead of colliding with the unit glyph. */}
           <div className="grid grid-cols-1 items-center gap-8 py-7 lg:grid-cols-12">
             <div className="min-w-0 space-y-3 lg:col-span-7">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-[#717786]">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-ink-3">
                 <Gauge size={15} weight="light" className="text-[#0058bc]/70" aria-hidden="true" />
                 <span>Tokens consumed this session</span>
               </div>
@@ -273,11 +279,11 @@ export default function TripView({ tripId }: { tripId: string }) {
                 >
                   <AnimatedNumber value={tokens} format={fullNum} />
                 </span>
-                <span className="shrink-0 font-mono text-lg font-medium text-[#717786]">tok</span>
+                <span className="shrink-0 font-mono text-lg font-medium text-ink-3">tok</span>
               </div>
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e5ea] bg-white px-2.5 py-1 font-mono text-xs text-[#414755]">
-                  <Coins size={14} weight="light" className="text-[#717786]" aria-hidden="true" />
+                  <Coins size={14} weight="light" className="text-ink-3" aria-hidden="true" />
                   Est. spend:&nbsp;
                   <strong className="font-semibold text-[#1a1b1f]">
                     <AnimatedNumber value={cost} format={fmtCost} />
@@ -291,7 +297,7 @@ export default function TripView({ tripId }: { tripId: string }) {
                   </strong>
                 </span>
                 <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e5ea] bg-white px-2.5 py-1 font-mono text-xs text-[#414755]">
-                  <ChatCenteredText size={14} weight="light" className="text-[#717786]" aria-hidden="true" />
+                  <ChatCenteredText size={14} weight="light" className="text-ink-3" aria-hidden="true" />
                   <strong className="tnum font-semibold text-[#1a1b1f]">
                     {fullNum(messages)}
                   </strong>
@@ -304,7 +310,7 @@ export default function TripView({ tripId }: { tripId: string }) {
 
             <div className="min-w-0 space-y-3 lg:col-span-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-[#717786]">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-ink-3">
                   <span
                     className="breathe h-2 w-2 rounded-full bg-[#34c759]"
                     aria-hidden="true"
@@ -322,11 +328,11 @@ export default function TripView({ tripId }: { tripId: string }) {
               >
                 {elapsed}
               </div>
-              <div className="flex items-center justify-between text-[13px] text-[#717786]">
+              <div className="flex items-center justify-between text-[13px] text-ink-3">
                 <span>
                   Started: <strong className="font-medium text-[#414755]">{startedLabel}</strong>
                 </span>
-                <span className="text-xs text-[#717786]">· Continuous flow</span>
+                <span className="text-xs text-ink-3">· Continuous flow</span>
               </div>
             </div>
           </div>
@@ -370,7 +376,7 @@ export default function TripView({ tripId }: { tripId: string }) {
               </button>
               <div className="min-w-0 flex-auto rounded-[1.25rem] bg-[#f4f3f8] p-1 ring-1 ring-[#e5e5ea]">
                 <div className="rounded-[calc(1.25rem-0.25rem)] bg-white px-4 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
-                  <p className="truncate text-[11px] font-medium uppercase tracking-[0.14em] text-[#717786]">
+                  <p className="truncate text-[11px] font-medium uppercase tracking-[0.14em] text-ink-3">
                     Stop condition
                   </p>
                   <p
@@ -384,7 +390,7 @@ export default function TripView({ tripId }: { tripId: string }) {
             </div>
             {streams.length > 0 && (
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-                <span className="mr-1 text-[11px] font-medium text-[#717786]">Active streams:</span>
+                <span className="mr-1 text-[11px] font-medium text-ink-3">Active streams:</span>
                 {streams.map((s) => {
                   const v = getClientVisual(s.client);
                   return (
@@ -395,7 +401,7 @@ export default function TripView({ tripId }: { tripId: string }) {
                     >
                       <span className={cn("h-1.5 w-1.5 rounded-full", v.dot)} aria-hidden="true" />
                       <span className="max-w-[10rem] truncate font-medium">{s.model}</span>
-                      <span className="text-[#717786]">{fmtTokens(s.tokens)}</span>
+                      <span className="text-ink-3">{fmtTokens(s.tokens)}</span>
                     </span>
                   );
                 })}
@@ -415,8 +421,8 @@ export default function TripView({ tripId }: { tripId: string }) {
           {/* Guardrails: auto-stop readout + deadline progress */}
           <div className="space-y-4 border-t border-[#e5e5ea] pt-5">
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-[#717786]">
-                <Timer size={15} weight="light" className="text-[#717786]" aria-hidden="true" />
+              <div className="flex items-center gap-2 text-ink-3">
+                <Timer size={15} weight="light" className="text-ink-3" aria-hidden="true" />
                 <span className="font-medium">Trip auto-stop condition:</span>
               </div>
               {/* Segmented readout: wraps its own chips instead of running the
@@ -448,7 +454,7 @@ export default function TripView({ tripId }: { tripId: string }) {
                         "tnum inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono",
                         on
                           ? "bg-[#0070eb]/10 font-semibold text-[#0058bc] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
-                          : "font-medium text-[#717786]",
+                          : "font-medium text-ink-3",
                       )}
                     >
                       {on && (
@@ -467,7 +473,7 @@ export default function TripView({ tripId }: { tripId: string }) {
                     <ShieldCheck size={15} weight="light" className="text-[#0058bc]/70" aria-hidden="true" />
                     Session time budget
                   </span>
-                  <span className="tnum font-mono text-[#717786]">
+                  <span className="tnum font-mono text-ink-3">
                     <strong className="text-[#1a1b1f]">{elapsed}</strong>
                     {" / "}
                     {fmtClock(deadlineMs)}
@@ -485,13 +491,13 @@ export default function TripView({ tripId }: { tripId: string }) {
                   aria-valuenow={Math.round(progressPct)}
                 >
                   <motion.div
-                    className="h-full rounded-full bg-gradient-to-r from-[#0058bc] via-[#0070eb] to-[#4da3ff]"
+                    className="h-full w-full origin-left rounded-full bg-gradient-to-r from-[#0058bc] via-[#0070eb] to-[#4da3ff]"
                     initial={false}
-                    animate={{ width: `${progressPct}%` }}
+                    animate={{ scaleX: Math.max(0, Math.min(1, progressPct / 100)) }}
                     transition={{ duration: 0.7, ease: EASE }}
                   />
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-[#717786]">
+                <div className="flex items-center justify-between text-[11px] text-ink-3">
                   <span>
                     Remaining before auto-stop:{" "}
                     <strong className="tnum font-mono text-[#414755]">
@@ -502,7 +508,7 @@ export default function TripView({ tripId }: { tripId: string }) {
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-[#717786]">
+              <p className="text-xs text-ink-3">
                 {stopKind === "idle"
                   ? "Stops itself after token flow goes quiet — no deadline to track."
                   : "Manual stop — this trip runs until you stop it by hand."}
@@ -522,20 +528,20 @@ export default function TripView({ tripId }: { tripId: string }) {
               </p>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="min-w-0 rounded-xl border border-[#e5e5ea] bg-[#f4f3f8] px-3 py-2">
-                  <p className="text-[11px] text-[#717786]">Burn rate</p>
+                  <p className="text-[11px] text-ink-3">Burn rate</p>
                   <p className="tnum mt-0.5 break-words font-mono text-lg font-bold leading-tight text-[#1a1b1f]">
                     {fmtCost(burnRate)}
-                    <span className="text-xs font-normal text-[#717786]"> /hr</span>
+                    <span className="text-xs font-normal text-ink-3"> /hr</span>
                   </p>
                 </div>
                 <div className="min-w-0 rounded-xl border border-[#e5e5ea] bg-[#f4f3f8] px-3 py-2">
-                  <p className="text-[11px] text-[#717786]">Trip projected</p>
+                  <p className="text-[11px] text-ink-3">Trip projected</p>
                   <p className="tnum mt-0.5 break-words font-mono text-lg font-bold leading-tight text-[#1a1b1f]">
                     {fmtCost(projectedCost)}
                   </p>
                 </div>
               </div>
-              <p className="tnum mt-3 border-t border-[#e5e5ea] pt-2.5 font-mono text-[11px] text-[#717786]">
+              <p className="tnum mt-3 border-t border-[#e5e5ea] pt-2.5 font-mono text-[11px] text-ink-3">
                 {fullNum(avgTokMin)} tok/min average
               </p>
             </div>
@@ -546,24 +552,24 @@ export default function TripView({ tripId }: { tripId: string }) {
                 Session flow
               </p>
               <div className="mt-3 space-y-1.5 font-mono text-xs">
-                <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] py-1 text-[#717786]">
+                <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] py-1 text-ink-3">
                   <span className="min-w-0 truncate">Messages</span>
                   <span className="tnum shrink-0 font-medium text-[#1a1b1f]">{fullNum(messages)}</span>
                 </div>
-                <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] py-1 text-[#717786]">
+                <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] py-1 text-ink-3">
                   <span className="min-w-0 truncate">Tokens / message</span>
                   <span className="tnum shrink-0 font-medium text-[#1a1b1f]">
                     {messages > 0 ? fullNum(tokens / messages) : "—"}
                   </span>
                 </div>
-                <div className="flex items-center justify-between gap-2 py-1 text-[#717786]">
+                <div className="flex items-center justify-between gap-2 py-1 text-ink-3">
                   <span className="min-w-0 truncate">Cost / message</span>
                   <span className="tnum shrink-0 font-medium text-[#0058bc]">
                     {messages > 0 ? fmtCost(cost / messages) : "—"}
                   </span>
                 </div>
               </div>
-              <p className="mt-2.5 border-t border-[#e5e5ea] pt-2.5 text-[11px] text-[#717786]">
+              <p className="mt-2.5 border-t border-[#e5e5ea] pt-2.5 text-[11px] text-ink-3">
                 Telemetry refreshes every 15 seconds.
               </p>
             </div>
@@ -583,7 +589,7 @@ export default function TripView({ tripId }: { tripId: string }) {
                           <span className="max-w-[60%] truncate font-medium text-[#414755]">
                             {m.model}
                           </span>
-                          <span className="tnum font-mono text-[#717786]">
+                          <span className="tnum font-mono text-ink-3">
                             {fmtTokens(m.tokens)} ({(share * 100).toFixed(0)}%)
                           </span>
                         </div>
@@ -596,9 +602,9 @@ export default function TripView({ tripId }: { tripId: string }) {
                           aria-valuenow={Math.round(share * 100)}
                         >
                           <motion.div
-                            className="h-full rounded-full bg-[#0070eb]"
+                            className="h-full w-full origin-left rounded-full bg-[#0070eb]"
                             initial={false}
-                            animate={{ width: `${Math.min(100, share * 100)}%` }}
+                            animate={{ scaleX: Math.max(0, Math.min(1, share)) }}
                             transition={{ duration: 0.7, ease: EASE }}
                           />
                         </div>
@@ -607,9 +613,9 @@ export default function TripView({ tripId }: { tripId: string }) {
                   })}
                 </div>
               ) : (
-                <p className="mt-3 text-xs text-[#717786]">Collecting the start baseline…</p>
+                <p className="mt-3 text-xs text-ink-3">Collecting the start baseline…</p>
               )}
-              <p className="mt-3 border-t border-[#e5e5ea] pt-2.5 font-mono text-[11px] text-[#717786]">
+              <p className="mt-3 border-t border-[#e5e5ea] pt-2.5 font-mono text-[11px] text-ink-3">
                 Mix at trip start — dashboard totals unaffected.
               </p>
             </div>
@@ -617,10 +623,10 @@ export default function TripView({ tripId }: { tripId: string }) {
 
           {/* Bench plate microcopy */}
           <div className="mt-5 space-y-1 border-t border-[#e5e5ea] pt-3">
-            <p className="text-[11px] leading-relaxed text-[#717786]">
+            <p className="text-[11px] leading-relaxed text-ink-3">
               {isFetching ? "Syncing live telemetry…" : "Stopwatch ticks each second"}
             </p>
-            <p className="tnum font-mono text-[11px] leading-relaxed text-[#717786]">
+            <p className="tnum font-mono text-[11px] leading-relaxed text-ink-3">
               {scope?.kind === "clients"
                 ? `Scoped to ${scope.clients.length} ${scope.clients.length === 1 ? "client" : "clients"}`
                 : "Scoped to all clients"}

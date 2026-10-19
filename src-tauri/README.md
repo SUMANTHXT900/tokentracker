@@ -38,14 +38,12 @@ tokscale-core = { git = "https://github.com/junhoyeo/tokscale.git", tag = "v4.19
 
 `tauri.conf.json → plugins.updater`:
 
-- `active: true`, `pubkey: "TAURI_UPDATER_PUBKEY"` (placeholder — replace with
-  the real Tauri update public key before release).
-- `endpoints: ["https://github.com/USER/tokentracker/releases/latest/download/latest.json"]`
-  — TODO: replace `USER/tokentracker` with the real GitHub repo.
+- `active: true`, real minisign pubkey, stable channel, notify-only toast flow
+  (see `src/updater.tsx`): auto-check on launch, manual check in
+  Settings → Updates, download/install/restart all user-gated. Native
+  updater dialog disabled (`dialog: false`) so toasts own the flow.
+- `endpoints: ["https://github.com/SUMANTHXT900/tokentracker/releases/latest/download/latest.json"]`
 - Windows `stableOnly: true`.
-
-`cmd_check_update` is currently a placeholder returning `{ available: false }`.
-Wire it to `tauri-plugin-updater` once signing + endpoints are live.
 
 ## Attribution
 

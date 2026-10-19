@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { CalendarDots } from "@phosphor-icons/react";
 import { useStore } from "../store";
@@ -50,13 +50,22 @@ function Rule() {
   return <span aria-hidden className="h-3 w-px shrink-0 bg-[#E4E1E8]" />;
 }
 
-/** rAF count-up, instant when the user prefers reduced motion. */
+/** rAF count-up from the previously displayed value (never flashes from 0
+ *  on refetch), instant when the user prefers reduced motion. */
 function useCountUp(target: number, duration = 900): number {
   const reduceMotion = useReducedMotion();
-  const [value, setValue] = useState(() => (reduceMotion ? target : 0));
+  const safeTarget = typeof target === "number" && Number.isFinite(target) ? target : 0;
+  const [value, setValue] = useState(() => (reduceMotion ? safeTarget : 0));
+  const shownRef = useRef<number | null>(null);
   useEffect(() => {
     if (reduceMotion) {
-      setValue(target);
+      shownRef.current = safeTarget;
+      setValue(safeTarget);
+      return;
+    }
+    const from = shownRef.current ?? 0;
+    if (from === safeTarget) {
+      setValue(safeTarget);
       return;
     }
     let raf = 0;
@@ -64,12 +73,14 @@ function useCountUp(target: number, duration = 900): number {
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
-      setValue(target * eased);
+      const v = from + (safeTarget - from) * eased;
+      shownRef.current = v;
+      setValue(v);
       if (t < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [target, duration, reduceMotion]);
+  }, [safeTarget, duration, reduceMotion]);
   return value;
 }
 
@@ -239,7 +250,7 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
               Daily agent velocity by active coding blocks
             </p>
           </div>
-          <div className="flex items-center gap-1.5 font-sans text-[10px] text-[#717786]">
+          <div className="flex items-center gap-1.5 font-sans text-[10px] text-ink-3">
             <span>Less</span>
             <span className="h-2.5 w-2.5 rounded bg-[#ECE9EF]" aria-hidden />
             <span className="h-2.5 w-2.5 rounded bg-[#0070eb]/25" aria-hidden />
@@ -277,7 +288,7 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
                   </span>
                 </>
               ) : (
-                <span className="text-[#717786]">none</span>
+                <span className="text-ink-3">none</span>
               )}
             </span>
           </div>
@@ -343,12 +354,12 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
                 {hovered.messages.toLocaleString()}{" "}
                 <span className="font-sans text-[#626267]">msgs</span>
               </span>
-              <span className="ml-auto hidden shrink-0 font-sans text-[10px] text-[#717786] xl:block">
+              <span className="ml-auto hidden shrink-0 font-sans text-[10px] text-ink-3 xl:block">
                 click a day to scope the dashboard
               </span>
             </div>
           ) : (
-            <span className="min-w-0 flex-1 truncate font-sans text-xs text-[#717786]">
+            <span className="min-w-0 flex-1 truncate font-sans text-xs text-ink-3">
               Hover a day to read tokens, spend and messages
             </span>
           )}
@@ -373,7 +384,7 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
                   <span
                     key={`m-${wi}`}
                     style={{ gridColumn: `${wi + 2} / span ${span}`, gridRow: 1 }}
-                    className="truncate font-mono text-[10px] leading-3 text-[#717786]"
+                    className="truncate font-mono text-[10px] leading-3 text-ink-3"
                   >
                     {label}
                   </span>
@@ -384,7 +395,7 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
                 <span
                   key={`dow-${di}`}
                   style={{ gridColumn: 1, gridRow: di + 2 }}
-                  className="self-center pr-1 text-right font-mono text-[9px] leading-none text-[#717786]"
+                  className="self-center pr-1 text-right font-mono text-[9px] leading-none text-ink-3"
                 >
                   {label}
                 </span>
@@ -430,7 +441,7 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
 
       <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[#F0EDEF] pt-3">
         <div className="min-w-0 rounded-xl border border-[#E4E1E8]/70 bg-[#F6F3F5] p-2.5">
-          <span className="block font-sans text-[10px] text-[#717786]">Peak coding day</span>
+          <span className="block font-sans text-[10px] text-ink-3">Peak coding day</span>
           <span
             className="tnum mt-0.5 block truncate font-mono text-[13px] font-semibold text-[#1b1b1d]"
             title={stats.peak ? `${fmtDayLabel(stats.peak.date)} · ${peakValue}` : "—"}
@@ -439,14 +450,14 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
           </span>
         </div>
         <div className="min-w-0 rounded-xl border border-[#E4E1E8]/70 bg-[#F6F3F5] p-2.5">
-          <span className="block font-sans text-[10px] text-[#717786]">Cost efficiency</span>
+          <span className="block font-sans text-[10px] text-ink-3">Cost efficiency</span>
           <span className="tnum mt-0.5 block truncate font-mono text-[13px] font-semibold text-[#006b27]">
             {stats.activeDays > 0 ? `Avg ${fmtCost(totalCost / stats.activeDays)}/day` : "—"}
           </span>
         </div>
       </div>
 
-      <div className="tnum mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[10px] text-[#717786]">
+      <div className="tnum mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[10px] text-ink-3">
         <span>{rangeLabel}</span>
         <Rule />
         <span>intensity by {effScale}</span>

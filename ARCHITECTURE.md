@@ -83,7 +83,7 @@ State:
 
 1. **No submit / leaderboard / telemetry.** Upstream `tokscale` TUI ships opt-in submit + leaderboard; we do **not** compile or expose those modules. `grep -r "submit\|leaderboard\|telemetry" src-tauri/src` must be empty in CI (add as lint step).
 2. **No background network except:**
-   - (a) Tauri updater check (`tauri-plugin-updater`), user-gated by `auto_check_updates` (default ON but one-click OFF in Settings), payload is only **version + arch + target** per Tauri updater protocol, against our own GitHub Releases `latest.json`.
+   - (a) Tauri updater check (`tauri-plugin-updater`): auto-checks once on launch (silent on failure) plus manual Settings → Updates → Check for updates. All downloads, installs, and restarts are user-gated toast actions — no silent installs. Payload is only **version + arch + target** per Tauri updater protocol, against our own GitHub Releases `latest.json`.
    - (b) Optional manual pricing fetch — only when user clicks "Refresh pricing" in Settings, fetching a pinned JSON URL they can inspect/edit. Never automatic, never silent.
 3. **Filesystem scope:** Tauri FS capability limited to: app-local-data, `~/.codex`, `~/.claude`, user-chosen pricing file via dialog. No full-disk access, no `$HOME/**`.
 4. **No PII leaves device:** prompt text / session content is never read — only token counts, model names, timestamps, cost math. Adapter drops `message.content` fields at parse time.

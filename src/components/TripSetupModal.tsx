@@ -35,6 +35,13 @@ export default function TripSetupModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
+  // Mirror for the trap/Escape closure so `busy` stays out of the effect deps:
+  // re-running the focus effect on every busy flip stole focus back to the
+  // opener mid-submit and re-captured a stale return target.
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   // Focus trap + Escape + return-focus. The dialog owns Tab while open and
   // hands focus back to the opener on unmount (WCAG 2.4.3 / 2.1.2).
@@ -45,7 +52,7 @@ export default function TripSetupModal({
     const fn = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        if (!busy) onClose();
+        if (!busyRef.current) onClose();
         return;
       }
       if (e.key !== "Tab") return;
@@ -55,7 +62,9 @@ export default function TripSetupModal({
         root.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      // getClientRects: offsetParent is null for fixed-position subtrees in
+      // some browsers, which emptied the trap list and let Tab escape.
+      ).filter((el) => el.getClientRects().length > 0);
       if (items.length === 0) {
         e.preventDefault();
         return;
@@ -73,9 +82,12 @@ export default function TripSetupModal({
     window.addEventListener("keydown", fn, true);
     return () => {
       window.removeEventListener("keydown", fn, true);
-      prevFocusRef.current?.focus?.();
+      const prev = prevFocusRef.current;
+      if (prev && typeof document !== "undefined" && document.contains(prev)) {
+        prev.focus?.();
+      }
     };
-  }, [onClose, busy]);
+  }, [onClose]);
 
   const toggle = (c: string) => {
     setAll(false);
@@ -192,13 +204,13 @@ export default function TripSetupModal({
             />
 
             <div className="relative min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
-              <p className="inline-flex items-center rounded-full border border-[#e5e5ea] bg-white px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-[#717786]">
+              <p className="inline-flex items-center rounded-full border border-[#e5e5ea] bg-white px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-ink-3">
                 Zero the meter
               </p>
               <h2 id="trip-setup-title" className="font-display mt-2 text-xl font-semibold tracking-tight text-[#1a1b1f]">
                 New focus
               </h2>
-              <p id="trip-setup-desc" className="mt-1 text-[13px] leading-relaxed text-[#717786]">
+              <p id="trip-setup-desc" className="mt-1 text-[13px] leading-relaxed text-ink-3">
                 Zero the trip meter and measure this work block from current totals.
               </p>
 
@@ -208,7 +220,7 @@ export default function TripSetupModal({
                   ref={nameRef}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="tnum mt-1.5 w-full rounded-xl border border-[#e5e5ea] bg-white px-3 py-2.5 text-sm text-[#1a1b1f] shadow-[inset_0_1px_2px_rgba(16,24,40,0.06)] placeholder:text-[#a7abb6] focus:border-[#0070eb]/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/40"
+                  className="tnum mt-1.5 w-full rounded-xl border border-[#e5e5ea] bg-white px-3 py-2.5 text-sm text-[#1a1b1f] shadow-[inset_0_1px_2px_rgba(16,24,40,0.06)] placeholder:text-ink-3 focus:border-[#0070eb]/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/40"
                   placeholder={`Focus ${new Date().toISOString().slice(0, 10)}`}
                 />
               </label>
@@ -217,7 +229,7 @@ export default function TripSetupModal({
                 <Users size={14} weight="light" className="text-[#0058bc]/70" aria-hidden="true" />
                 Scope
               </div>
-              <p id="trip-scope-hint" className="mt-0.5 text-xs text-[#717786]">Which clients count toward this trip.</p>
+              <p id="trip-scope-hint" className="mt-0.5 text-xs text-ink-3">Which clients count toward this trip.</p>
               <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Clients" aria-describedby="trip-scope-hint">
                 <button
                   type="button"
@@ -255,7 +267,7 @@ export default function TripSetupModal({
                   );
                 })}
                 {list.length === 0 && (
-                  <span className="text-xs text-[#717786]">No clients yet, focus covers all.</span>
+                  <span className="text-xs text-ink-3">No clients yet, focus covers all.</span>
                 )}
               </div>
 
@@ -264,7 +276,7 @@ export default function TripSetupModal({
                   <Timer size={14} weight="light" className="text-[#0058bc]/70" aria-hidden="true" />
                   Stop condition
                 </legend>
-                <p id="trip-stop-hint" className="mt-0.5 text-xs text-[#717786]">
+                <p id="trip-stop-hint" className="mt-0.5 text-xs text-ink-3">
                   A focus can always be stopped by hand.
                 </p>
                 {/* Native radio group: same `name` gives free roving tabindex +
@@ -300,7 +312,7 @@ export default function TripSetupModal({
                         </span>
                         <span className="text-sm font-medium text-[#1a1b1f]">Manual</span>
                       </label>
-                      <div className="mt-0.5 pl-6 text-xs text-[#717786]">Runs until you stop it.</div>
+                      <div className="mt-0.5 pl-6 text-xs text-ink-3">Runs until you stop it.</div>
                     </div>
                   </motion.div>
 
@@ -332,7 +344,7 @@ export default function TripSetupModal({
                         </span>
                         <span className="text-sm font-medium text-[#1a1b1f]">After a fixed duration</span>
                       </label>
-                      <div className="mt-0.5 pl-6 text-xs text-[#717786]">Stops itself after the set hours.</div>
+                      <div className="mt-0.5 pl-6 text-xs text-ink-3">Stops itself after the set hours.</div>
                       <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 pl-6">
                         <button
                           type="button"
@@ -350,11 +362,14 @@ export default function TripSetupModal({
                           disabled={mode !== "after"}
                           onChange={(e) => setHoursDraft(e.target.value)}
                           onBlur={commitHours}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                          }}
                           onFocus={() => setMode("after")}
                           aria-label="Hours until auto-stop"
                           className={digitWell}
                         />
-                        <span className="text-xs text-[#717786]">hours</span>
+                        <span className="text-xs text-ink-3">hours</span>
                         <button
                           type="button"
                           disabled={mode !== "after"}
@@ -396,7 +411,7 @@ export default function TripSetupModal({
                         </span>
                         <span className="text-sm font-medium text-[#1a1b1f]">When idle</span>
                       </label>
-                      <div className="mt-0.5 pl-6 text-xs text-[#717786]">
+                      <div className="mt-0.5 pl-6 text-xs text-ink-3">
                         Stops after no new tokens arrive.
                       </div>
                       <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 pl-6">
@@ -416,11 +431,14 @@ export default function TripSetupModal({
                           disabled={mode !== "idle"}
                           onChange={(e) => setMinutesDraft(e.target.value)}
                           onBlur={commitMinutes}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                          }}
                           onFocus={() => setMode("idle")}
                           aria-label="Idle minutes until auto-stop"
                           className={digitWell}
                         />
-                        <span className="text-xs text-[#717786]">min idle</span>
+                        <span className="text-xs text-ink-3">min idle</span>
                         <button
                           type="button"
                           disabled={mode !== "idle"}

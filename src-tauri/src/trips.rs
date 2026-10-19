@@ -67,9 +67,18 @@ pub fn trip_started_now_with_mode(
 }
 
 /// Stop a trip now with an optional reason.
-pub fn trip_stop_now(mut trip: TripConfig, reason: Option<String>) -> TripConfig {
+pub fn trip_stop_now(trip: TripConfig, reason: Option<String>) -> TripConfig {
+    trip_stop_at(trip, Utc::now().timestamp_millis(), reason)
+}
+
+/// Stop a trip at an explicit end time (retroactive closes use the deadline,
+/// not "now", so restarts and the worker agree on the end time).
+/// Clamps `ended_at_ms` to `>= started_at_ms` so corrupt/negative inputs can
+/// never produce an inverted window. No-op when already stopped (preserves
+/// the original end time/reason).
+pub fn trip_stop_at(mut trip: TripConfig, ended_at_ms: i64, reason: Option<String>) -> TripConfig {
     if trip.ended_at_ms.is_none() {
-        trip.ended_at_ms = Some(Utc::now().timestamp_millis());
+        trip.ended_at_ms = Some(ended_at_ms.max(trip.started_at_ms));
         trip.stop_reason = reason.or_else(|| Some("manual".to_string()));
     }
     trip
@@ -134,6 +143,11 @@ pub fn check_auto_stop(
     match trip.stop_mode.as_str() {
         "after" => {
             if let Some(after) = trip.stop_after_ms {
+                // Non-positive durations are config errors; never fire instead
+                // of instantly closing every trip.
+                if after <= 0 {
+                    return None;
+                }
                 if now_ms >= trip.started_at_ms.saturating_add(after) {
                     return Some("time-elapsed".to_string());
                 }
@@ -142,6 +156,9 @@ pub fn check_auto_stop(
         }
         "idle" => {
             if let Some(idle) = trip.idle_after_ms {
+                if idle <= 0 {
+                    return None;
+                }
                 let anchor = last_activity_ms.unwrap_or(trip.started_at_ms);
                 if now_ms.saturating_sub(anchor) >= idle {
                     return Some("idle-timeout".to_string());
@@ -173,66 +190,194 @@ pub struct TripStoreFile {
 }
 
 /// Load the store. Missing file → empty store. Corrupt file → moved aside
-/// (`trips.json.corrupt-<millis>`) and treated as empty, so one bad write can
-/// never brick trip history.
+/// (`trips.json.corrupt-<millis>-<pid>`) and treated as empty, so one bad write can
+/// never brick trip history. Successfully parsed stores are sanitized
+/// (empty ids dropped, duplicate ids de-duplicated keeping the last write,
+/// inverted `[start, end]` windows clamped) so bad data on disk can never
+/// poison in-memory state.
 pub fn load_trips_file(path: &std::path::Path) -> TripStoreFile {
     let raw = match std::fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return TripStoreFile::default(),
+        // Any other I/O error (permissions, etc.): do NOT quarantine — we
+        // couldn't even read the file, so renaming it aside could destroy
+        // data. Return empty; the caller only persists when reconcile reports
+        // a change, so we won't overwrite the unreadable file blindly.
         Err(_) => return TripStoreFile::default(),
     };
     match serde_json::from_str::<TripStoreFile>(&raw) {
-        Ok(store) => store,
+        Ok(store) => sanitize_store(store),
         Err(_) => {
             let backup = path.with_extension(format!(
-                "json.corrupt-{}",
-                chrono::Utc::now().timestamp_millis()
+                "json.corrupt-{}-{}",
+                chrono::Utc::now().timestamp_millis(),
+                std::process::id()
             ));
-            let _ = std::fs::rename(path, backup);
+            // Best-effort quarantine; a failure here still returns empty
+            // (the corrupt bytes are unparseable either way).
+            let _ = std::fs::rename(path, &backup);
+            // If rename failed (e.g. permissions), try copy-then-remove so a
+            // retry doesn't spin on the same corrupt file; ignore errors.
+            if path.exists() {
+                let _ = std::fs::copy(path, &backup);
+            }
             TripStoreFile::default()
         }
     }
 }
 
-/// Save the store atomically (temp file + rename).
+/// Drop entries that can never be valid and heal inverted windows.
+/// - empty `id` → dropped (unaddressable; commands look trips up by id).
+/// - duplicate `id` → last occurrence wins (a re-save overwrites).
+/// - `ended_at_ms < started_at_ms` → clamped to `started_at_ms`.
+fn sanitize_store(store: TripStoreFile) -> TripStoreFile {
+    // Dedupe keeping the LAST write, preserving the relative order of the
+    // surviving entries.
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped_rev: Vec<TripConfig> = Vec::with_capacity(store.trips.len());
+    for trip in store.trips.into_iter().rev() {
+        if trip.id.is_empty() || !seen.insert(trip.id.clone()) {
+            continue;
+        }
+        deduped_rev.push(trip);
+    }
+    let mut trips: Vec<TripConfig> = deduped_rev.into_iter().rev().collect();
+    for trip in trips.iter_mut() {
+        if let Some(end) = trip.ended_at_ms {
+            if end < trip.started_at_ms {
+                trip.ended_at_ms = Some(trip.started_at_ms);
+            }
+        }
+    }
+    let active_trip_id = match store.active_trip_id {
+        Some(id) if id.is_empty() => None,
+        other => other,
+    };
+    TripStoreFile {
+        trips,
+        active_trip_id,
+    }
+}
+
+/// Save the store atomically (unique temp file in the same directory +
+/// rename, so concurrent saves never share a tmp path) with a read-back
+/// verification: after rename the file is re-read and parsed, and a mismatch
+/// is reported as an error instead of silently losing data.
 pub fn save_trips_file(path: &std::path::Path, store: &TripStoreFile) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("trips dir: {e}"))?;
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("trips dir: {e}"))?;
+        }
     }
-    let tmp = path.with_extension("json.tmp");
     let raw = serde_json::to_string_pretty(store).map_err(|e| format!("trips serialize: {e}"))?;
-    std::fs::write(&tmp, raw).map_err(|e| format!("trips write: {e}"))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("trips commit: {e}"))?;
+    // Unique tmp in the SAME directory (rename stays on one filesystem, so
+    // it remains atomic). Includes pid + nanos to survive rapid succession.
+    let tmp = path.with_extension(format!(
+        "json.tmp-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    {
+        use std::io::Write;
+        let mut f =
+            std::fs::File::create(&tmp).map_err(|e| format!("trips write: {e}"))?;
+        f.write_all(raw.as_bytes())
+            .map_err(|e| format!("trips write: {e}"))?;
+        f.sync_all().map_err(|e| format!("trips sync: {e}"))?;
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("trips commit: {e}"));
+    }
+    // Read-back verification: the committed bytes must parse to what we wrote.
+    let verify_raw =
+        std::fs::read_to_string(path).map_err(|e| format!("trips verify read: {e}"))?;
+    let verify: TripStoreFile =
+        serde_json::from_str(&verify_raw).map_err(|e| format!("trips verify parse: {e}"))?;
+    if verify != *store {
+        return Err("trips verify: mismatch after write".to_string());
+    }
     Ok(())
 }
 
 /// Reconcile a freshly loaded store against `now_ms`.
 ///
-/// - Active trips restored from disk are marked `resumed = true`.
+/// - Active trips restored from disk and still running are marked
+///   `resumed = true`. Trips closed retroactively below are NOT marked
+///   resumed — they never ran in this session, so a "resumed" badge on them
+///   would be a lie.
 /// - Expired `after` trips are closed retroactively at their deadline
 ///   (`started_at_ms + stop_after_ms`, reason `time-elapsed`) so a trip whose
 ///   deadline passed while the app was closed shows the right end time.
+///   Non-positive `stop_after_ms` values are config errors and never fire.
+///   Trips with `started_at_ms` in the future (clock skew) are left running.
 /// - `idle` trips are left to the trip worker, which recomputes last activity
 ///   from a fresh scan (needs I/O; reconcile stays pure).
-/// - If the active trip was closed, it is cleared.
+/// - Stale `active_trip_id`s (missing or ended trip) are cleared; when no
+///   active id remains but active trips exist, the newest active trip is
+///   promoted so a legacy/edited file can't strand running trips.
+/// - Inverted `[start, end]` windows on already-closed trips are clamped.
+/// - Duplicate ids (shouldn't happen post-sanitize, but in-memory stores
+///   bypass `load`) are de-duplicated, last write wins.
 ///
 /// Returns true when anything changed (caller should persist).
 pub fn reconcile_on_startup(store: &mut TripStoreFile, now_ms: i64) -> bool {
     let mut changed = false;
-    for trip in store.trips.iter_mut().filter(|t| t.ended_at_ms.is_none()) {
-        if !trip.resumed {
-            trip.resumed = true;
+
+    // Defensive: same sanitize `load` applies (dedupe + clamp), but track
+    // whether it changed anything so the caller persists the healed store.
+    {
+        let before = store.trips.len();
+        let sanitized = sanitize_store(store.clone());
+        if sanitized.trips.len() != before
+            || sanitized.trips.iter().any(|t| {
+                store
+                    .trips
+                    .iter()
+                    .find(|o| o.id == t.id)
+                    .map(|o| o != t)
+                    .unwrap_or(true)
+            })
+        {
             changed = true;
         }
-        if trip.stop_mode == "after" {
-            if let Some(after) = trip.stop_after_ms {
-                let deadline = trip.started_at_ms.saturating_add(after);
-                if now_ms >= deadline {
-                    trip.ended_at_ms = Some(deadline);
-                    trip.stop_reason = Some("time-elapsed".to_string());
+        // Heal inverted windows on already-closed trips too.
+        for trip in sanitized.trips.iter() {
+            if let Some(prev) = store.trips.iter().find(|o| o.id == trip.id) {
+                if prev.ended_at_ms != trip.ended_at_ms {
                     changed = true;
                 }
             }
+        }
+        *store = sanitized;
+    }
+
+    for trip in store.trips.iter_mut().filter(|t| t.ended_at_ms.is_none()) {
+        if trip.stop_mode == "after" {
+            if let Some(after) = trip.stop_after_ms {
+                if after > 0 {
+                    let deadline = trip.started_at_ms.saturating_add(after);
+                    // `started <= now` guards clock skew (start in the
+                    // future): a trip that hasn't started can't have expired.
+                    if trip.started_at_ms <= now_ms && now_ms >= deadline {
+                        let closed = trip_stop_at(
+                            trip.clone(),
+                            deadline,
+                            Some("time-elapsed".to_string()),
+                        );
+                        // Retroactive close: keep `resumed` as-is (false for
+                        // a freshly restored trip) — it never ran here.
+                        trip.ended_at_ms = closed.ended_at_ms;
+                        trip.stop_reason = closed.stop_reason;
+                        changed = true;
+                        continue;
+                    }
+                }
+            }
+        }
+        if !trip.resumed {
+            trip.resumed = true;
+            changed = true;
         }
     }
     if let Some(active_id) = store.active_trip_id.clone() {
@@ -242,6 +387,19 @@ pub fn reconcile_on_startup(store: &mut TripStoreFile, now_ms: i64) -> bool {
             .any(|t| t.id == active_id && t.ended_at_ms.is_none());
         if !still_active {
             store.active_trip_id = None;
+            changed = true;
+        }
+    }
+    // Promote the newest running trip when no active id remains (stale id
+    // cleared above, or legacy file with actives but no id).
+    if store.active_trip_id.is_none() {
+        if let Some(newest) = store
+            .trips
+            .iter()
+            .filter(|t| t.ended_at_ms.is_none())
+            .max_by_key(|t| t.started_at_ms)
+        {
+            store.active_trip_id = Some(newest.id.clone());
             changed = true;
         }
     }
@@ -363,7 +521,8 @@ mod tests {
         let expired = store.trips.iter().find(|t| t.id == "expired").unwrap();
         assert_eq!(expired.ended_at_ms, Some(1500));
         assert_eq!(expired.stop_reason.as_deref(), Some("time-elapsed"));
-        assert!(expired.resumed);
+        // Retroactively closed trips never ran in this session: resumed stays false.
+        assert!(!expired.resumed);
         let live = store.trips.iter().find(|t| t.id == "live").unwrap();
         assert!(live.ended_at_ms.is_none());
         assert!(live.resumed);
@@ -411,5 +570,219 @@ mod tests {
     fn missing_file_loads_empty() {
         let path = std::env::temp_dir().join(format!("tokentracker-test-missing-{}-x.json", line!()));
         assert_eq!(load_trips_file(&path), TripStoreFile::default());
+    }
+
+    #[test]
+    fn trip_stop_at_clamps_inverted_window_and_preserves_existing() {
+        let trip = active_trip("t", "manual", 1000, None);
+        // Retroactive end before start clamps to start.
+        let closed = trip_stop_at(trip, 500, Some("time-elapsed".into()));
+        assert_eq!(closed.ended_at_ms, Some(1000));
+        assert_eq!(closed.stop_reason.as_deref(), Some("time-elapsed"));
+        // Already-stopped trips are untouched (no overwrite of end/reason).
+        let mut stopped = closed.clone();
+        stopped.stop_reason = Some("original".into());
+        let again = trip_stop_at(stopped.clone(), 9999, Some("other".into()));
+        assert_eq!(again.ended_at_ms, stopped.ended_at_ms);
+        assert_eq!(again.stop_reason.as_deref(), Some("original"));
+    }
+
+    #[test]
+    fn auto_stop_rejects_non_positive_durations() {
+        let mut after = active_trip("a", "after", 1000, Some(0));
+        assert_eq!(check_auto_stop(&after, 999_999, None), None);
+        after.stop_after_ms = Some(-100);
+        assert_eq!(check_auto_stop(&after, 999_999, None), None);
+        let idle = TripConfig {
+            idle_after_ms: Some(0),
+            stop_mode: "idle".into(),
+            ..active_trip("i", "idle", 1000, None)
+        };
+        assert_eq!(check_auto_stop(&idle, 999_999, Some(1000)), None);
+        let idle_neg = TripConfig {
+            idle_after_ms: Some(-5),
+            ..idle.clone()
+        };
+        assert_eq!(check_auto_stop(&idle_neg, 999_999, Some(1000)), None);
+    }
+
+    #[test]
+    fn auto_stop_idle_fires_from_anchor() {
+        let idle = TripConfig {
+            idle_after_ms: Some(1_000),
+            ..active_trip("i", "idle", 1000, None)
+        };
+        assert_eq!(check_auto_stop(&idle, 1999, Some(1000)), None);
+        assert_eq!(
+            check_auto_stop(&idle, 2000, Some(1000)),
+            Some("idle-timeout".to_string())
+        );
+        // No activity yet → measured from start.
+        assert_eq!(
+            check_auto_stop(&idle, 2000, None),
+            Some("idle-timeout".to_string())
+        );
+    }
+
+    #[test]
+    fn reconcile_ignores_non_positive_after_but_marks_resumed() {
+        let mut store = TripStoreFile {
+            trips: vec![active_trip("z", "after", 1000, Some(0))],
+            active_trip_id: Some("z".into()),
+        };
+        assert!(reconcile_on_startup(&mut store, 999_999));
+        let t = store.trips.iter().find(|t| t.id == "z").unwrap();
+        assert!(t.ended_at_ms.is_none());
+        assert!(t.resumed);
+        assert_eq!(store.active_trip_id.as_deref(), Some("z"));
+    }
+
+    #[test]
+    fn reconcile_leaves_future_started_trips_running_on_clock_skew() {
+        // `now` behind `started`: clock moved backwards. Must not close.
+        let mut store = TripStoreFile {
+            trips: vec![active_trip("f", "after", 10_000, Some(500))],
+            active_trip_id: Some("f".into()),
+        };
+        assert!(reconcile_on_startup(&mut store, 5_000));
+        let t = store.trips.iter().find(|t| t.id == "f").unwrap();
+        assert!(t.ended_at_ms.is_none());
+        assert!(t.resumed);
+        assert_eq!(store.active_trip_id.as_deref(), Some("f"));
+    }
+
+    #[test]
+    fn reconcile_promotes_newest_when_active_id_missing() {
+        let mut store = TripStoreFile {
+            trips: vec![
+                active_trip("old", "manual", 1000, None),
+                active_trip("new", "manual", 2000, None),
+            ],
+            active_trip_id: None,
+        };
+        assert!(reconcile_on_startup(&mut store, 3000));
+        assert_eq!(store.active_trip_id.as_deref(), Some("new"));
+        assert!(store.trips.iter().all(|t| t.resumed));
+    }
+
+    #[test]
+    fn reconcile_promotes_survivor_when_active_id_stale() {
+        let mut store = TripStoreFile {
+            trips: vec![
+                active_trip("gone", "after", 1000, Some(100)),
+                active_trip("survivor", "manual", 2000, None),
+            ],
+            // Points at a trip that will be retroactively closed.
+            active_trip_id: Some("gone".into()),
+        };
+        assert!(reconcile_on_startup(&mut store, 5000));
+        let gone = store.trips.iter().find(|t| t.id == "gone").unwrap();
+        assert!(gone.ended_at_ms.is_some());
+        // Stale id is not left dangling: the surviving active trip is promoted.
+        assert_eq!(store.active_trip_id.as_deref(), Some("survivor"));
+    }
+
+    #[test]
+    fn reconcile_dedupes_and_clamps_inverted_windows() {
+        let mut dupe = active_trip("d", "manual", 1000, None);
+        dupe.name = "second-wins".into();
+        let mut store = TripStoreFile {
+            trips: vec![active_trip("d", "manual", 1000, None), dupe],
+            active_trip_id: Some("d".into()),
+        };
+        assert!(reconcile_on_startup(&mut store, 1500));
+        assert_eq!(store.trips.len(), 1);
+        assert_eq!(store.trips[0].name, "second-wins");
+
+        // Already-closed trip with end < start is clamped to start.
+        let mut bad = TripStoreFile {
+            trips: vec![TripConfig {
+                ended_at_ms: Some(500),
+                ..active_trip("bad", "manual", 1000, None)
+            }],
+            active_trip_id: None,
+        };
+        assert!(reconcile_on_startup(&mut bad, 2000));
+        assert_eq!(
+            bad.trips[0].ended_at_ms,
+            Some(1000),
+            "inverted window must clamp"
+        );
+    }
+
+    #[test]
+    fn load_sanitizes_duplicates_empty_ids_and_inverted_windows() {
+        let dir = std::env::temp_dir().join(format!("tokentracker-test-sanitize-{}", line!()));
+        let path = dir.join("trips.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = serde_json::json!({
+            "trips": [
+                {"id": "", "name": "empty", "clients": null, "started_at_ms": 1,
+                 "ended_at_ms": null, "stop_mode": "manual", "stop_after_ms": null,
+                 "idle_after_ms": null, "stop_reason": null, "resumed": false},
+                {"id": "d", "name": "first", "clients": null, "started_at_ms": 1,
+                 "ended_at_ms": null, "stop_mode": "manual", "stop_after_ms": null,
+                 "idle_after_ms": null, "stop_reason": null, "resumed": false},
+                {"id": "d", "name": "last", "clients": null, "started_at_ms": 1,
+                 "ended_at_ms": null, "stop_mode": "manual", "stop_after_ms": null,
+                 "idle_after_ms": null, "stop_reason": null, "resumed": false},
+                {"id": "bad", "name": "bad", "clients": null, "started_at_ms": 1000,
+                 "ended_at_ms": 500, "stop_mode": "manual", "stop_after_ms": null,
+                 "idle_after_ms": null, "stop_reason": null, "resumed": false}
+            ],
+            "active_trip_id": ""
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&raw).unwrap()).unwrap();
+        let loaded = load_trips_file(&path);
+        assert_eq!(loaded.trips.len(), 2, "empty id dropped, dupe collapsed");
+        assert_eq!(
+            loaded.trips.iter().find(|t| t.id == "d").unwrap().name,
+            "last"
+        );
+        assert_eq!(
+            loaded.trips.iter().find(|t| t.id == "bad").unwrap().ended_at_ms,
+            Some(1000)
+        );
+        assert_eq!(loaded.active_trip_id, None, "empty active id → None");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn empty_file_is_quarantined_with_backup() {
+        let dir = std::env::temp_dir().join(format!("tokentracker-test-empty-{}", line!()));
+        let path = dir.join("trips.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "").unwrap();
+        let loaded = load_trips_file(&path);
+        assert_eq!(loaded, TripStoreFile::default());
+        let quarantined = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+            .any(|n| n.contains("corrupt-"));
+        assert!(quarantined, "empty file must leave a corrupt backup");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn save_creates_parent_dirs_and_leaves_no_tmp() {
+        let dir = std::env::temp_dir().join(format!("tokentracker-test-dirs-{}", line!()));
+        let path = dir.join("nested").join("trips.json");
+        let store = TripStoreFile {
+            trips: vec![active_trip("a", "manual", 1000, None)],
+            active_trip_id: Some("a".into()),
+        };
+        save_trips_file(&path, &store).expect("save creates dirs");
+        assert_eq!(load_trips_file(&path), store);
+        // Unique-tmp scheme must not leave debris behind.
+        let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+            .filter(|n| n.contains(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "tmp leftovers: {leftovers:?}");
+        // Rapid successive saves (same millis) must both succeed.
+        save_trips_file(&path, &store).expect("second save");
+        assert_eq!(load_trips_file(&path), store);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

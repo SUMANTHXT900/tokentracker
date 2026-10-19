@@ -6,11 +6,12 @@ function safeNum(n: number): number {
   return n;
 }
 
-/** e.g. 5.86B, 12.40M, 3.2k, 999 */
+/** e.g. 5.86B, 12.40M, 3.2k, 999 — rounds then re-tiers so 999950 never prints as "1000.0k". */
 export function fmtTokens(n: number): string {
   const v = safeNum(n);
-  if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (v >= 999995000) return `${(v / 1e9).toFixed(2)}B`;
   if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  if (v >= 999950) return `${(v / 1e6).toFixed(2)}M`;
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
   return `${Math.floor(v)}`;
 }
@@ -18,8 +19,9 @@ export function fmtTokens(n: number): string {
 /** Split number and unit for display typography e.g. { num: "5.86", unit: "B" } */
 export function splitTokens(n: number): { num: string; unit: "" | "k" | "M" | "B" } {
   const v = safeNum(n);
-  if (v >= 1e9) return { num: (v / 1e9).toFixed(2), unit: "B" };
+  if (v >= 999995000) return { num: (v / 1e9).toFixed(2), unit: "B" };
   if (v >= 1e6) return { num: (v / 1e6).toFixed(2), unit: "M" };
+  if (v >= 999950) return { num: (v / 1e6).toFixed(2), unit: "M" };
   if (v >= 1e3) return { num: (v / 1e3).toFixed(1), unit: "k" };
   return { num: `${Math.floor(v)}`, unit: "" };
 }

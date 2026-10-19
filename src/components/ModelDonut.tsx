@@ -22,6 +22,22 @@ function shorten(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
+/** Escape data-derived strings before interpolating into tooltip HTML. */
+function esc(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Long model lists collapse so tooltips stay bounded: first 8 + overflow count. */
+function shortFull(full: string): string {
+  const parts = full.split(", ");
+  if (parts.length <= 8) return full;
+  return `${parts.slice(0, 8).join(", ")} … +${parts.length - 8} more`;
+}
+
 function Segmented<T extends string>({
   label,
   value,
@@ -31,7 +47,7 @@ function Segmented<T extends string>({
   label: string;
   value: T;
   onChange: (v: T) => void;
-  options: { key: T; label: string }[];
+  options: { key: T; label: string; disabled?: boolean; title?: string }[];
 }) {
   return (
     <div
@@ -45,9 +61,11 @@ function Segmented<T extends string>({
           <button
             key={o.key}
             aria-pressed={active}
+            disabled={o.disabled}
+            title={o.title}
             onClick={() => onChange(o.key)}
             className={cn(
-              "rounded-md px-2 py-1 font-sans text-[11px] font-medium transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0058bc] active:scale-[0.98]",
+              "rounded-md px-2 py-1 font-sans text-[11px] font-medium transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0058bc] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50",
               active ? "bg-white font-semibold text-[#0058bc] shadow-sm" : "text-[#626267] hover:text-[#1b1b1d]",
             )}
           >
@@ -157,9 +175,10 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
               value?: number;
             };
             const share = total > 0 && typeof d.value === "number" ? d.value / total : 0;
+            const heading = esc(shortFull(String(d.full ?? d.name ?? "")));
             return `
-              <div style="min-width:176px;font-family:'JetBrains Mono',monospace">
-                <div style="font-size:11.5px;font-weight:600;color:#1b1b1d;margin-bottom:7px">${d.full ?? d.name ?? ""}</div>
+              <div style="min-width:176px;max-width:280px;font-family:'JetBrains Mono',monospace">
+                <div style="font-size:11.5px;font-weight:600;color:#1b1b1d;margin-bottom:7px;overflow:hidden;text-overflow:ellipsis">${heading}</div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;padding:2px 0">
                   <span style="color:#626267;font-size:11px;font-family:sans-serif">Share</span>
                   <span style="color:#1b1b1d;font-size:12px;font-weight:600">${fmtPct(share)}</span>
@@ -228,8 +247,19 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
     return (
       <div className="rounded-2xl border border-[#E4E1E8] bg-white p-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
         <div className="flex h-72 flex-col items-center justify-center rounded-xl border border-dashed border-[#E4E1E8] bg-[#FAFAFC]">
-          <Cube size={20} className="text-[#717786]" aria-hidden />
+          <Cube size={20} className="text-ink-3" aria-hidden />
           <p className="mt-2 font-sans text-[13px] text-[#414755]">No models in this range</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (total === 0) {
+    return (
+      <div className="rounded-2xl border border-[#E4E1E8] bg-white p-1.5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
+        <div className="flex h-72 flex-col items-center justify-center rounded-xl border border-dashed border-[#E4E1E8] bg-[#FAFAFC]">
+          <Cube size={20} className="text-ink-3" aria-hidden />
+          <p className="mt-2 font-sans text-[13px] text-[#414755]">Models found, but no usage recorded yet</p>
         </div>
       </div>
     );
@@ -275,7 +305,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
           </span>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-          <p className="tnum font-mono text-[10.5px] text-[#717786]">
+          <p className="tnum font-mono text-[10.5px] text-ink-3">
             {resolvedView === "donut" ? "top 5 plus other" : `top 10 by ${effectiveMetric}`}
             {view === "auto" && <span> (auto)</span>}
           </p>
@@ -295,7 +325,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
               value={effectiveMetric}
               onChange={setMetric}
               options={[
-                { key: "cost", label: "Cost" },
+                { key: "cost", label: "Cost", disabled: totalCost === 0, title: totalCost === 0 ? "No cost data — every model here is free" : undefined },
                 { key: "tokens", label: "Tokens" },
               ]}
             />
@@ -352,7 +382,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
                     )}
                     <span className="min-w-0 flex-1 truncate font-sans text-[#414755]">{s.name}</span>
-                    <span className="tnum min-w-[6ch] shrink-0 text-right font-mono text-[#717786]">
+                    <span className="tnum min-w-[6ch] shrink-0 text-right font-mono text-ink-3">
                       {fmtPct(share)}
                     </span>
                     <span className="tnum min-w-[7ch] shrink-0 text-right font-mono text-[#414755]">
@@ -398,7 +428,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
                     </div>
                     <div className="tnum flex shrink-0 items-baseline justify-end gap-2 whitespace-nowrap">
                       <span className="font-bold text-[#1b1b1d]">{fmtCost(m.cost)}</span>
-                      <span className="text-[11px] text-[#717786]">({fmtTokens(m.tokens)} tok)</span>
+                      <span className="text-[11px] text-ink-3">({fmtTokens(m.tokens)} tok)</span>
                     </div>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0EDEF]">
@@ -417,7 +447,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
           </ul>
         )}
       </div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[#F0EDEF] pt-4 font-sans text-[11px] text-[#717786]">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[#F0EDEF] pt-4 font-sans text-[11px] text-ink-3">
         <span className="shrink-0">{models.length} models tracked</span>
         <span className="min-w-0 font-medium text-[#0058bc]">Automatic cache discounting applied</span>
       </div>

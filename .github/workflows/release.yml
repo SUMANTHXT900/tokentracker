@@ -27,6 +27,20 @@ jobs:
           case "$ENDPOINT" in *USER/*) echo "updater endpoint still USER/ — run: npm run updater:endpoint -- <owner/repo>"; exit 1;; esac
           echo "updater OK: $ENDPOINT"
 
+      - name: Guard tag matches all version files
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          EXPECTED="${TAG#v}"
+          PKG=$(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).version)")
+          TAURI=$(node -e "console.log(JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8')).version)")
+          CARGO=$(node -e "const t=require('fs').readFileSync('src-tauri/Cargo.toml','utf8'); console.log(t.match(/^version\s*=\s*\"([^\"]+)\"/m)[1])")
+          echo "tag=$EXPECTED package=$PKG tauri=$TAURI cargo=$CARGO"
+          [ "$PKG" = "$EXPECTED" ] || { echo "package.json version $PKG != tag $EXPECTED"; exit 1; }
+          [ "$TAURI" = "$EXPECTED" ] || { echo "tauri.conf.json version $TAURI != tag $EXPECTED"; exit 1; }
+          [ "$CARGO" = "$EXPECTED" ] || { echo "Cargo.toml version $CARGO != tag $EXPECTED"; exit 1; }
+          echo "versions OK: $EXPECTED"
+
       # TODO: frontend worker owns package.json — keep in sync with node version here.
       - uses: actions/setup-node@v7
         with:

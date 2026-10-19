@@ -34,6 +34,7 @@ import {
   cmdRescan,
   onUsageUpdated,
   onTripStopped,
+  cmdGetTrip,
   type ModelRowDTO,
   type ProjectRowDTO,
   type TripDTO,
@@ -53,7 +54,7 @@ import TripView from "./components/TripView";
 import Titlebar from "./components/Titlebar";
 import PngCards from "./components/PngCards";
 import UsageDetail from "./components/UsageDetail";
-import { useUpdater, UpdateToasts } from "./updater";
+import { fmtBytes, useUpdater, UpdateToasts } from "./updater";
 
 type NavIcon = typeof SquaresFour;
 
@@ -266,28 +267,33 @@ export default function App() {
   }, [sidebarCollapsed]);
 
   // Stable client ribbon: backend returns only filtered clients in snap.clients,
-  // so accumulate the union — selecting one client must not hide the rest.
+  // so accumulate the union while filtered — selecting one client must not
+  // hide the rest. On unfiltered snapshots the backend returns the full set,
+  // so adopt it directly (evicts renamed/removed clients).
   // Ordering follows snap.clients recency (active first), never alphabetical:
   // current backend order leads, historical clients trail.
   const [seenClients, setSeenClients] = useState<string[]>([]);
   useEffect(() => {
-    if (snap && snap.clients.length > 0) {
-      setSeenClients((prev) => {
-        const ordered: string[] = [];
-        for (const c of snap.clients) if (!ordered.includes(c)) ordered.push(c);
-        for (const c of prev) if (!ordered.includes(c)) ordered.push(c);
-        return ordered;
-      });
-    }
-  }, [snap]);
+    if (!snap) return;
+    setSeenClients((prev) => {
+      if (clients.length === 0) return [...snap.clients];
+      const ordered: string[] = [];
+      for (const c of snap.clients) if (!ordered.includes(c)) ordered.push(c);
+      for (const c of prev) if (!ordered.includes(c)) ordered.push(c);
+      return ordered;
+    });
+  }, [snap, clients]);
   const knownClients = seenClients.length > 0 ? seenClients : (snap?.clients ?? []);
 
-  // Per-client stats for ribbon badges. Cached while unfiltered (clients.length === 0)
-  // so pills keep their numbers after a client is selected.
+  // Per-client stats for ribbon badges. Stable while filtered so pills keep
+  // their numbers after a client is selected; refreshed on unfiltered snaps,
+  // and seeded from the first snap even if the app loads already filtered.
   const [clientStats, setClientStats] = useState<Record<string, ClientStat>>({});
   const unfiltered = clients.length === 0;
+  const hasStats = Object.keys(clientStats).length > 0;
   useEffect(() => {
-    if (!snap || !unfiltered) return;
+    if (!snap) return;
+    if (!unfiltered && hasStats) return;
     const m: Record<string, ClientStat> = {};
     const stat = (c: string): ClientStat => {
       if (!m[c]) m[c] = { tokens: 0, sessions: 0 };
@@ -300,7 +306,7 @@ export default function App() {
       for (const s of snap.sessions) stat(s.client).tokens += s.tokens;
     }
     setClientStats(m);
-  }, [snap, unfiltered]);
+  }, [snap, unfiltered, hasStats]);
 
   // Live watcher: Tauri emits usage://updated on fs change → refetch snapshot
   // (placeholderData keeps old UI, no flash). Browser dev: no-op.
@@ -309,7 +315,9 @@ export default function App() {
     onUsageUpdated(() => {
       queryClient.invalidateQueries({ queryKey: ["usage"] });
       queryClient.invalidateQueries({ queryKey: ["live-status"] });
-      setScanMsg(`Auto-updated ${new Date().toLocaleTimeString()}`);
+      // Static text: identical value dedupes in React, so screen readers
+      // are not re-announced on every background watcher tick.
+      setScanMsg("Auto-updated");
     }).then((u) => {
       unlisten = u;
     });
@@ -324,7 +332,7 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ["trip", trip_id] });
       const cur = useStore.getState().activeTripId;
       if (cur === trip_id) useStore.getState().setActiveTripId(null);
-      setScanMsg(`Focus stopped (${reason}) ${new Date().toLocaleTimeString()}`);
+      setScanMsg(`Focus stopped (${reason})`);
     }).then((u) => {
       unlisten = u;
     });
@@ -345,6 +353,24 @@ export default function App() {
     }
   };
 
+  const exportTrip = async (tripId: string, name: string) => {
+    try {
+      const detail = await cmdGetTrip(tripId);
+      const blob = new Blob([JSON.stringify(detail, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tokentracker-trip-${tripId}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setScanMsg(`Exported ${name}`);
+    } catch (e) {
+      setScanMsg(`Export failed: ${String(e)}`);
+    }
+  };
+
   const applyPreset = (days: number) => {
     setPresetDays(days === 0 ? null : days);
     if (days === 0) {
@@ -360,6 +386,16 @@ export default function App() {
     setPresetDays(null);
     setRange(null, null);
   };
+
+  // A preset pill is honest only while the live range still equals the window
+  // it produced. Other surfaces (Heatmap day scope) call setRange directly,
+  // so reconcile here instead of trusting local state.
+  useEffect(() => {
+    if (presetDays === null) return;
+    const end = new Date();
+    const start = new Date(end.getTime() - (presetDays - 1) * 86_400_000);
+    if (ymd(start) !== since || ymd(end) !== until) setPresetDays(null);
+  }, [since, until, presetDays]);
 
   // Overview bug fix: sessions arrive cost-sorted from the backend — recency-sort
   // a copy so the "Recent Sessions" panel actually shows recent work.
@@ -382,12 +418,18 @@ export default function App() {
   return (
     <MotionConfig reducedMotion="user">
     <div className="flex min-h-dvh flex-col bg-canvas text-ink">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[80] focus:rounded-full focus:border focus:border-primary/40 focus:bg-white focus:px-4 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-primary"
+      >
+        Skip to content
+      </a>
       <Titlebar />
       <div className="flex min-h-0 flex-1">
       {/* ── Cupertino telemetry rail (fixed chrome) ─────────────────────── */}
       <div
         className={cn(
-          "sticky top-0 z-30 h-[calc(100dvh-2.5rem)] shrink-0 p-3 pr-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          "sticky top-10 z-30 h-[calc(100dvh-2.5rem)] shrink-0 p-3 pr-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
           railExpanded ? "w-[268px]" : "w-[88px]",
         )}
         onMouseEnter={() => {
@@ -622,7 +664,7 @@ export default function App() {
       </div>
 
       {/* ── Main cockpit column ────────────────────────────────────────── */}
-      <main className="relative min-w-0 flex-1">
+      <main id="main-content" className="relative min-w-0 flex-1">
         <AnimatePresence>{loading && <BootOverlay />}</AnimatePresence>
         <div className="mx-auto max-w-6xl space-y-5 p-6">
           {/* Top instrument readout: page title + date range island */}
@@ -666,9 +708,10 @@ export default function App() {
                     <button
                       onClick={clearRange}
                       title="Clear date range"
+                      aria-label="Clear date range"
                       className="rounded-full p-0.5 text-primary/70 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-primary/10 hover:text-primary motion-reduce:transition-none"
                     >
-                      <X size={11} weight="bold" />
+                      <X size={11} weight="bold" aria-hidden="true" />
                     </button>
                   </span>
                 )}
@@ -776,16 +819,16 @@ export default function App() {
                     </div>
                   </div>
                   <Heatmap days={snap?.daily ?? []} />
-                  <div className="cockpit-panel rounded-2xl">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/70 px-4 py-3">
-                      <h3 className="font-display text-sm font-semibold tracking-wide text-zinc-100">
+                  <div className="rounded-2xl border border-[#e5e5ea] bg-white shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#f2f2f7] px-4 py-3">
+                      <h3 className="font-display text-sm font-semibold tracking-tight text-ink">
                         Recent Sessions
                       </h3>
                       <button
                         onClick={() => setPage("sessions")}
-                        className="inline-flex items-center gap-1 rounded-full border border-zinc-800 px-3 py-1 text-[11px] text-zinc-400 transition-colors hover:border-emerald-500/40 hover:text-emerald-300"
+                        className="inline-flex items-center gap-1 rounded-full border border-[#e5e5ea] bg-white px-3 py-1 text-[11px] font-medium text-ink-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
                       >
-                        View all sessions <CaretRight size={11} weight="bold" />
+                        View all sessions <CaretRight size={11} weight="bold" aria-hidden />
                       </button>
                     </div>
                     <div className="p-2">
@@ -836,13 +879,13 @@ export default function App() {
                             </span>
                           </span>
                           <div className="min-w-0">
-                            <p className="inline-flex items-center whitespace-nowrap rounded-full border border-[#e5e5ea] bg-white px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-[#717786]">
+                            <p className="inline-flex items-center whitespace-nowrap rounded-full border border-[#e5e5ea] bg-white px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-ink-3">
                               Trip meter bench
                             </p>
                             <h3 className="font-display mt-1.5 text-xl font-semibold tracking-tight text-[#1a1b1f]">
                               Focus sessions
                             </h3>
-                            <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-[#717786]">
+                            <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-ink-3">
                               Zero the meter, work the block, read the exact delta.
                             </p>
                           </div>
@@ -871,11 +914,11 @@ export default function App() {
                       <div className="flex flex-col items-center rounded-[calc(2rem-0.375rem)] border border-dashed border-[#d4d4dc] bg-[#faf9fe] p-10 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
                         <span className="rounded-[1.25rem] bg-[#f4f3f8] p-1 ring-1 ring-[#e5e5ea]">
                           <span className="flex h-12 w-12 items-center justify-center rounded-[calc(1.25rem-0.25rem)] bg-white ring-1 ring-[#e5e5ea]/70">
-                            <Timer size={22} weight="light" className="text-[#717786]" />
+                            <Timer size={22} weight="light" className="text-ink-3" />
                           </span>
                         </span>
                         <p className="mt-3 text-sm font-medium text-[#414755]">No active focus</p>
-                        <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-[#717786]">
+                        <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-ink-3">
                           Start one to watch the token delta accumulate while you
                           work. Scope it to every client or a few, then stop it by
                           hand, after a time, or when idle.
@@ -915,7 +958,7 @@ export default function App() {
                         </span>
                       </div>
                     {(trips ?? []).length === 0 ? (
-                      <div className="flex h-28 items-center justify-center px-4 text-sm text-[#717786]">
+                      <div className="flex h-28 items-center justify-center px-4 text-sm text-ink-3">
                         Nothing logged yet. Finished blocks land here.
                       </div>
                     ) : (
@@ -982,41 +1025,34 @@ export default function App() {
                                       </span>
                                     ) : null}
                                   </div>
-                                  <p className="mt-1 truncate text-xs text-[#717786]">{scopeText}</p>
-                                  <p className="mt-0.5 text-xs text-[#717786]">{stopText}</p>
+                                  <p className="mt-1 truncate text-xs text-ink-3">{scopeText}</p>
+                                  <p className="mt-0.5 text-xs text-ink-3">{stopText}</p>
                                 </div>
                                 <dl className="tnum grid min-w-0 grid-cols-3 gap-x-3 gap-y-1 font-mono text-[11px] sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-5 sm:text-right">
                                   <div className="min-w-0">
-                                    <dt className="text-[#717786]">Started</dt>
+                                    <dt className="text-ink-3">Started</dt>
                                     <dd className="mt-0.5 whitespace-nowrap text-[#414755]">
                                       {fmtStamp(t.started_at)}
                                     </dd>
                                   </div>
                                   <div className="min-w-0">
-                                    <dt className="text-[#717786]">Stopped</dt>
+                                    <dt className="text-ink-3">Stopped</dt>
                                     <dd className="mt-0.5 whitespace-nowrap text-[#414755]">
                                       {fmtStamp(t.stopped_at)}
                                     </dd>
                                   </div>
                                   <div className="min-w-0">
-                                    <dt className="text-[#717786]">Length</dt>
+                                    <dt className="text-ink-3">Length</dt>
                                     <dd className="mt-0.5 whitespace-nowrap text-[#1a1b1f]">{dur}</dd>
                                   </div>
                                 </dl>
                                 <div className="flex shrink-0 items-center gap-1 sm:ml-auto sm:justify-end">
                                   <button
                                     type="button"
-                                    title="Replay session snapshot"
-                                    aria-label={`Replay ${t.name}`}
-                                    className="rounded-md p-1.5 text-[#717786] opacity-80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-black/[0.04] hover:text-[#1a1b1f] group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
-                                  >
-                                    <ArrowsClockwise size={14} weight="light" aria-hidden="true" />
-                                  </button>
-                                  <button
-                                    type="button"
                                     title="Export session metrics"
-                                    aria-label={`Export ${t.name}`}
-                                    className="rounded-md p-1.5 text-[#717786] opacity-80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-black/[0.04] hover:text-[#1a1b1f] group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+                                    aria-label={`Export ${t.name} as JSON`}
+                                    onClick={() => void exportTrip(t.trip_id, t.name)}
+                                    className="rounded-md p-1.5 text-ink-3 opacity-80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-black/[0.04] hover:text-[#1a1b1f] group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
                                   >
                                     <ShareNetwork size={14} weight="light" aria-hidden="true" />
                                   </button>
@@ -1028,7 +1064,7 @@ export default function App() {
                     )}
                     {(trips ?? []).length > 0 && (
                       <div className="border-t border-[#e5e5ea] px-4 py-3 sm:px-5">
-                        <p className="text-xs text-[#717786]" role="status">
+                        <p className="text-xs text-ink-3" role="status">
                           Showing all {(trips ?? []).length} recorded focus{" "}
                           {(trips ?? []).length === 1 ? "session" : "sessions"}
                         </p>
@@ -1812,7 +1848,7 @@ function SettingsView({
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#0070eb]" />
             System ledger
           </span>
-          <p className="mt-2 max-w-md text-[12px] leading-relaxed text-[#717786]">
+          <p className="mt-2 max-w-md text-[12px] leading-relaxed text-ink-3">
             Watcher state, supported clients, and privacy architecture — everything below happens
             on this machine.
           </p>
@@ -1823,7 +1859,7 @@ function SettingsView({
             WATCHING
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e5e5ea] bg-[#f4f3f8] px-3 py-1 font-mono text-[10px] tracking-[0.14em] text-[#717786]" role="status">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e5e5ea] bg-[#f4f3f8] px-3 py-1 font-mono text-[10px] tracking-[0.14em] text-ink-3" role="status">
             <span aria-hidden className="inline-flex h-1.5 w-1.5 rounded-full bg-[#8e8e93]" />
             STANDBY
           </span>
@@ -1846,25 +1882,25 @@ function SettingsView({
         <h3 className="mt-2 text-[15px] font-semibold tracking-tight text-[#1c1c1e]">
           Watcher and scanner
         </h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-[#717786]">
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
           TokenTracker reads agent logs on this machine and refreshes the moment they change.
         </p>
         <div className="mt-4 divide-y divide-[#f2f2f7] border-y border-[#f2f2f7]">
           <div className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
-            <span className="text-[#717786]">File watcher</span>
+            <span className="text-ink-3">File watcher</span>
             {live?.watching ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-[#0070eb]/25 bg-[#0070eb]/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-[#0058bc]">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#0070eb] motion-reduce:animate-none" aria-hidden />
                 WATCHING
               </span>
             ) : (
-              <span className="rounded-full border border-[#e5e5ea] bg-[#f4f3f8] px-2.5 py-0.5 font-mono text-[10px] tracking-wider text-[#717786]">
+              <span className="rounded-full border border-[#e5e5ea] bg-[#f4f3f8] px-2.5 py-0.5 font-mono text-[10px] tracking-wider text-ink-3">
                 STANDBY
               </span>
             )}
           </div>
           <div className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
-            <span className="text-[#717786]">Last scan</span>
+            <span className="text-ink-3">Last scan</span>
             <span className="tnum font-mono text-xs text-[#1c1c1e]">
               {live?.last_scan_at
                 ? `${new Date(live.last_scan_at).toLocaleTimeString()} (${relTime(new Date(live.last_scan_at).getTime())})`
@@ -1872,7 +1908,7 @@ function SettingsView({
             </span>
           </div>
           <div className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
-            <span className="text-[#717786]">Pending files</span>
+            <span className="text-ink-3">Pending files</span>
             <span className="tnum font-mono text-xs text-[#1c1c1e]">
               {(live?.pending_files ?? 0).toLocaleString()}
             </span>
@@ -1880,7 +1916,7 @@ function SettingsView({
         </div>
         <div className="mt-4 space-y-2.5">
           {scanMsg && (
-            <p role="status" className="tnum px-1 font-mono text-[11px] text-[#717786]">
+            <p role="status" className="tnum px-1 font-mono text-[11px] text-ink-3">
               {scanMsg}
             </p>
           )}
@@ -1940,7 +1976,7 @@ function SettingsView({
         <h3 className="mt-2 text-[15px] font-semibold tracking-tight text-[#1c1c1e]">
           Supported agent clients
         </h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-[#717786]">
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
           Each client found in your local logs appears here with its session and token share.
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2">
@@ -1957,7 +1993,7 @@ function SettingsView({
                   <div className="min-w-0">
                     <p className="truncate text-xs font-semibold text-[#1c1c1e]">{v.label}</p>
                     {stat && (
-                      <p className="tnum truncate font-mono text-[9px] text-[#717786]">
+                      <p className="tnum truncate font-mono text-[9px] text-ink-3">
                         {stat.sessions} sessions, {fmtTokens(stat.tokens)}
                       </p>
                     )}
@@ -1966,10 +2002,10 @@ function SettingsView({
               );
             })
           ) : (
-            <p className="col-span-2 text-xs text-[#717786]">No clients detected yet.</p>
+            <p className="col-span-2 text-xs text-ink-3">No clients detected yet.</p>
           )}
         </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-[#717786]">
+        <p className="mt-3 text-[11px] leading-relaxed text-ink-3">
           ~60 local agent log formats are parsed automatically via{" "}
           <span className="font-mono font-semibold text-[#0058bc]">tokscale-core v4.19.1</span> — detected
           clients appear here as their logs are discovered.
@@ -1993,7 +2029,7 @@ function SettingsView({
         <h3 className="mt-2 text-[15px] font-semibold tracking-tight text-[#1c1c1e]">
           Privacy and architecture
         </h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-[#717786]">
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
           Everything below happens on this machine. There is no account and no analytics.
         </p>
         <div className="mt-4 space-y-2.5">
@@ -2001,7 +2037,7 @@ function SettingsView({
             <Database size={16} className="mt-0.5 shrink-0 text-[#0070eb]" aria-hidden />
             <div>
               <p className="text-[13px] font-semibold text-[#1c1c1e]">100% local log parsing</p>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-[#717786]">
+              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-3">
                 SQLite &amp; JSONL agent logs are read straight from disk and aggregated locally.
                 Nothing ever leaves this machine.
               </p>
@@ -2011,7 +2047,7 @@ function SettingsView({
             <Sparkle size={16} className="mt-0.5 shrink-0 text-[#0070eb]" aria-hidden />
             <div>
               <p className="text-[13px] font-semibold text-[#1c1c1e]">LiteLLM pricing math</p>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-[#717786]">
+              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-3">
                 Costs are computed with LiteLLM's per-model price tables — input, output, cache
                 read/write, and reasoning tokens priced separately.
               </p>
@@ -2021,7 +2057,7 @@ function SettingsView({
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-[#0070eb]" aria-hidden />
             <div>
               <p className="text-[13px] font-semibold text-[#1c1c1e]">Zero telemetry</p>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-[#717786]">
+              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-3">
                 No analytics, no phone-home, no accounts. Updates are stable-channel only and never
                 install without your click.
               </p>
@@ -2047,22 +2083,22 @@ function SettingsView({
         <h3 className="mt-2 text-[15px] font-semibold tracking-tight text-[#1c1c1e]">
           Active filters
         </h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-[#717786]">
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
           These filters shape every telemetry view, export card, and focus baseline.
         </p>
         <div className="tnum mt-4 divide-y divide-[#f2f2f7] border-y border-[#f2f2f7] font-mono text-[11px] text-[#414755]">
           <div className="flex items-center justify-between gap-3 py-2.5">
-            <span className="shrink-0 text-[#8e8e93]">clients</span>
+            <span className="shrink-0 text-ink-3">clients</span>
             <span className="min-w-0 truncate text-[#1c1c1e]" title={filters.clients.join(", ") || "all"}>
               [{filters.clients.join(", ") || "all"}]
             </span>
           </div>
           <div className="flex items-center justify-between gap-3 py-2.5">
-            <span className="text-[#8e8e93]">since</span>
+            <span className="text-ink-3">since</span>
             <span className="text-[#1c1c1e]">{filters.since ?? "—"}</span>
           </div>
           <div className="flex items-center justify-between gap-3 py-2.5">
-            <span className="text-[#8e8e93]">until</span>
+            <span className="text-ink-3">until</span>
             <span className="text-[#1c1c1e]">{filters.until ?? "—"}</span>
           </div>
         </div>
@@ -2085,33 +2121,55 @@ function SettingsView({
         <h3 className="mt-2 text-[15px] font-semibold tracking-tight text-[#1c1c1e]">
           App updates
         </h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-[#717786]">
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-3">
           Stable channel only. Nothing downloads or installs without your click.
         </p>
         <div className="tnum mt-4 divide-y divide-[#f2f2f7] border-y border-[#f2f2f7] font-mono text-[11px] text-[#414755]">
           <div className="flex items-center justify-between gap-3 py-2.5">
-            <span className="shrink-0 text-[#8e8e93]">installed</span>
+            <span className="shrink-0 text-ink-3">installed</span>
             <span className="text-[#1c1c1e]">{updater.appVersion ? `v${updater.appVersion}` : "dev build"}</span>
           </div>
           <div className="flex items-center justify-between gap-3 py-2.5">
-            <span className="shrink-0 text-[#8e8e93]">last checked</span>
+            <span className="shrink-0 text-ink-3">last checked</span>
             <span className="text-[#1c1c1e]">
-              {updater.checkState.kind === "uptodate" || updater.checkState.kind === "failed"
-                ? new Date(updater.checkState.at).toLocaleString()
+              {updater.lastCheckedAt
+                ? new Date(updater.lastCheckedAt).toLocaleString()
                 : updater.checkState.kind === "checking"
                   ? "checking…"
                   : "—"}
             </span>
           </div>
           <div className="flex items-center justify-between gap-3 py-2.5">
-            <span className="shrink-0 text-[#8e8e93]">status</span>
+            <span className="shrink-0 text-ink-3">status</span>
             <span className="text-[#1c1c1e]">
-              {updater.available
-                ? `v${updater.available.version} ready`
-                : updater.checkState.kind === "uptodate"
-                  ? "up to date"
-                  : updater.checkState.kind === "failed"
-                    ? "check failed"
+              {updater.restartPending
+                ? "installed — restart pending"
+                : updater.available
+                  ? `v${updater.available.version} ready`
+                  : updater.download.kind === "working"
+                    ? updater.download.phase === "installing"
+                      ? "installing…"
+                      : "downloading…"
+                    : updater.download.kind === "failed"
+                      ? "download failed"
+                      : updater.checkState.kind === "uptodate"
+                        ? "up to date"
+                        : updater.checkState.kind === "failed"
+                          ? "check failed"
+                          : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3 py-2.5">
+            <span className="shrink-0 text-ink-3">download</span>
+            <span className="tnum text-right font-mono text-[11px] text-[#1c1c1e]">
+              {updater.download.kind === "working"
+                ? updater.download.total != null
+                  ? `${fmtBytes(updater.download.bytes)} of ${fmtBytes(updater.download.total)}`
+                  : `${fmtBytes(updater.download.bytes)} so far`
+                : updater.download.kind === "ready" || updater.restartPending
+                  ? "installed — restart pending"
+                  : updater.download.kind === "failed"
+                    ? "failed — retry below"
                     : "—"}
             </span>
           </div>
@@ -2119,11 +2177,11 @@ function SettingsView({
         <div className="mt-4 space-y-2.5">
           {updater.checkState.kind === "failed" && (
             <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-2.5 text-[11px] text-red-700">
-              Couldn&apos;t reach the update server. Check your connection and try again.
+              {updater.checkError ?? "Couldn't reach the update server. Check your connection and try again."}
             </p>
           )}
           {updater.checkState.kind === "uptodate" && (
-            <p role="status" className="tnum px-1 font-mono text-[11px] text-[#717786]">
+            <p role="status" className="tnum px-1 font-mono text-[11px] text-ink-3">
               You&apos;re up to date.
             </p>
           )}
@@ -2132,7 +2190,7 @@ function SettingsView({
               v{updater.available.version} is ready — use the update notification to download and install it.
             </p>
           )}
-          <p className="px-1 text-[11px] leading-relaxed text-[#8e8e93]">
+          <p className="px-1 text-[11px] leading-relaxed text-ink-3">
             Icons look stale after updating? Unpin and re-pin the taskbar icon, or run{" "}
             <code className="tnum font-mono">ie4uinit.exe -show</code> and restart Explorer —
             Windows caches icons separately from the app.
@@ -2164,6 +2222,24 @@ function SettingsView({
               />
             </span>
           </button>
+          {updater.available && !updater.restartPending && updater.download.kind === "idle" && (
+            <button
+              onClick={() => void updater.startDownload()}
+              aria-label={`Download update v${updater.available.version}`}
+              className="w-full rounded-xl bg-[#0070eb] py-2 text-[13px] font-semibold text-white shadow-sm transition-all duration-300 ease-out hover:bg-[#0058bc] active:scale-[0.98] motion-reduce:transition-none"
+            >
+              Download update
+            </button>
+          )}
+          {(updater.restartPending || updater.download.kind === "ready") && (
+            <button
+              onClick={() => void updater.relaunchNow()}
+              aria-label="Restart now to apply the installed update"
+              className="w-full rounded-xl bg-[#0070eb] py-2 text-[13px] font-semibold text-white shadow-sm transition-all duration-300 ease-out hover:bg-[#0058bc] active:scale-[0.98] motion-reduce:transition-none"
+            >
+              Restart now
+            </button>
+          )}
         </div>
       </section>
       </div>

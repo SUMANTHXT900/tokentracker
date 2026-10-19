@@ -136,7 +136,7 @@ function SortTh({
           MAGNETIC_PRESS,
           FOCUS_RING,
           "rounded-md hover:text-slate-900",
-          active ? "text-slate-900" : "text-slate-400",
+          active ? "text-slate-900" : "text-ink-3",
           align === "right" && "flex-row-reverse",
         )}
       >
@@ -149,7 +149,7 @@ function SortTh({
               <CaretDown size={12} weight="bold" className="text-blue-600" />
             )
           ) : (
-            <span className="text-slate-300 opacity-0 transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none group-hover/sort:opacity-100">
+            <span className="text-ink-3 opacity-0 transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none group-hover/sort:opacity-100">
               <CaretDown size={12} />
             </span>
           )}
@@ -209,7 +209,7 @@ function FilterPill({
         <span
           className={cn(
             "tnum font-mono font-normal",
-            on ? "text-white/80" : "text-slate-400",
+            on ? "text-white/80" : "text-ink-3",
           )}
         >
           {count}
@@ -242,9 +242,15 @@ export default function SessionsTable({
   useEffect(() => {
     setPage(0);
   }, [rows, query, clientFilter, recency, sort, pageSize]);
-  // Collapse the inspector when the underlying rows change out from under it.
+  // Collapse the inspector only when its row actually disappears from the
+  // result set (e.g. date-range change). A blind null on every `rows`
+  // identity change wiped the open inspector on each background refetch.
   useEffect(() => {
-    setSelected(null);
+    setSelected((prev) => {
+      if (!prev) return prev;
+      const keys = new Set((rows ?? []).map((r) => `${r.client}:${r.session_id}`));
+      return keys.has(prev) ? prev : null;
+    });
   }, [rows]);
 
   // Escape collapses the open inspector — keyboard parity for the row toggle.
@@ -292,27 +298,40 @@ export default function SessionsTable({
   const sorted = useMemo(() => {
     const arr = [...filtered];
     const mult = sort.dir === "asc" ? 1 : -1;
+    const num = (v: unknown): number =>
+      typeof v === "number" && Number.isFinite(v) ? v : 0;
+    const dur = (r: (typeof arr)[number]): number =>
+      r.last_seen > 0 && r.first_seen > 0 ? Math.max(0, r.last_seen - r.first_seen) : 0;
     arr.sort((a, b) => {
+      let primary = 0;
       switch (sort.key) {
         case "last_seen":
-          return (a.last_seen - b.last_seen) * mult;
+          primary = (num(a.last_seen) - num(b.last_seen)) * mult;
+          break;
         case "duration":
-          return (
-            (a.last_seen - a.first_seen - (b.last_seen - b.first_seen)) * mult
-          );
+          primary = (dur(a) - dur(b)) * mult;
+          break;
         case "messages":
-          return (a.messages - b.messages) * mult;
+          primary = (num(a.messages) - num(b.messages)) * mult;
+          break;
         case "tokens":
-          return (a.tokens - b.tokens) * mult;
+          primary = (num(a.tokens) - num(b.tokens)) * mult;
+          break;
         case "cost":
-          return (a.cost - b.cost) * mult;
+          primary = (num(a.cost) - num(b.cost)) * mult;
+          break;
         case "client":
-          return a.client.localeCompare(b.client) * mult;
+          primary = (a.client ?? "").localeCompare(b.client ?? "") * mult;
+          break;
         case "model":
-          return a.model.localeCompare(b.model) * mult;
+          primary = (a.model ?? "").localeCompare(b.model ?? "") * mult;
+          break;
         default:
-          return 0;
+          primary = 0;
       }
+      // Deterministic tiebreak so equal keys never reshuffle between renders.
+      if (primary === 0) primary = (a.session_id ?? "").localeCompare(b.session_id ?? "");
+      return primary;
     });
     return arr;
   }, [filtered, sort]);
@@ -341,6 +360,13 @@ export default function SessionsTable({
 
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pages - 1);
+  // Keep the stored page in range when the result set shrinks underneath it
+  // (background refetch with no filter change). Display already uses
+  // `safePage`, but without this the Prev control walks down from the stale
+  // out-of-range value one click at a time.
+  useEffect(() => {
+    if (page > pages - 1) setPage(pages - 1);
+  }, [page, pages]);
   const visible = sorted.slice(safePage * pageSize, safePage * pageSize + pageSize);
   const rangeStart = sorted.length === 0 ? 0 : safePage * pageSize + 1;
   const rangeEnd = Math.min(sorted.length, safePage * pageSize + pageSize);
@@ -372,7 +398,7 @@ export default function SessionsTable({
       <div className="rounded-3xl bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.12)] ring-1 ring-slate-900/[0.06]">
         <div className="flex h-40 flex-col items-center justify-center gap-1 rounded-3xl border border-dashed border-slate-200 bg-white px-4 text-center">
           <p className="text-sm font-medium text-slate-700">No sessions in this range</p>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-ink-3">
             New runs land here as they are recorded.
           </p>
         </div>
@@ -399,7 +425,7 @@ export default function SessionsTable({
                 <span>
                   Sessions{" "}
                   <span
-                    className="tnum font-mono text-xs font-normal text-slate-400"
+                    className="tnum font-mono text-xs font-normal text-ink-3"
                     aria-live="polite"
                   >
                     ({sorted.length.toLocaleString()})
@@ -436,7 +462,7 @@ export default function SessionsTable({
                 <div className="relative" role="search">
                   <MagnifyingGlass
                     size={14}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3"
                   />
                   <input
                     value={query}
@@ -444,7 +470,7 @@ export default function SessionsTable({
                     placeholder="Filter title, id, client, model, project, agent…"
                     aria-label="Filter sessions"
                     className={cn(
-                      "w-64 rounded-full border border-slate-900/[0.1] bg-white py-1.5 pl-9 pr-8 text-xs text-slate-900 shadow-sm placeholder:text-slate-400",
+                      "w-64 rounded-full border border-slate-900/[0.1] bg-white py-1.5 pl-9 pr-8 text-xs text-slate-900 shadow-sm placeholder:text-ink-3",
                       CONTROL_EASE,
                       FOCUS_RING,
                       "hover:border-slate-900/[0.2] focus:border-blue-600",
@@ -456,7 +482,7 @@ export default function SessionsTable({
                       onClick={() => setQuery("")}
                       aria-label="Clear search"
                       className={cn(
-                        "group/clear absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+                        "group/clear absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-ink-3 hover:bg-slate-100 hover:text-slate-700",
                         CONTROL_EASE,
                         MAGNETIC_PRESS,
                         FOCUS_RING,
@@ -478,7 +504,7 @@ export default function SessionsTable({
               role="group"
               aria-label="Filter by recency"
             >
-              <span className="mr-1 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">
+              <span className="mr-1 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-ink-3">
                 Recency
               </span>
               {RECENCY_OPTIONS.map((o) => (
@@ -491,7 +517,7 @@ export default function SessionsTable({
                 />
               ))}
               <span
-                className="ml-2 hidden items-center gap-2 font-mono text-[10px] text-slate-400 sm:inline-flex"
+                className="ml-2 hidden items-center gap-2 font-mono text-[10px] text-ink-3 sm:inline-flex"
                 aria-hidden="true"
               >
                 <span className="inline-flex items-center gap-1">
@@ -512,7 +538,7 @@ export default function SessionsTable({
               role="group"
               aria-label="Filter by client"
             >
-              <span className="mr-1 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">
+              <span className="mr-1 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-ink-3">
                 Client
               </span>
               <FilterPill
@@ -549,7 +575,7 @@ export default function SessionsTable({
               <tr className="border-b border-slate-900/[0.06]">
                 <th
                   scope="col"
-                  className="min-w-56 px-4 py-2.5 pl-5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400"
+                  className="min-w-56 px-4 py-2.5 pl-5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-ink-3"
                 >
                   Session
                 </th>
@@ -577,7 +603,7 @@ export default function SessionsTable({
                         MAGNETIC_PRESS,
                         FOCUS_RING,
                         "hover:text-slate-900",
-                        sort.key === "last_seen" ? "text-slate-900" : "text-slate-400",
+                        sort.key === "last_seen" ? "text-slate-900" : "text-ink-3",
                       )}
                     >
                       Last active
@@ -589,7 +615,7 @@ export default function SessionsTable({
                             <CaretDown size={12} weight="bold" className="text-blue-600" />
                           )
                         ) : (
-                          <span className="text-slate-300 opacity-0 transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none group-hover/sort:opacity-100">
+                          <span className="text-ink-3 opacity-0 transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none group-hover/sort:opacity-100">
                             <CaretDown size={12} />
                           </span>
                         )}
@@ -607,7 +633,7 @@ export default function SessionsTable({
                         FOCUS_RING,
                         sort.key === "duration"
                           ? "text-blue-600"
-                          : "text-slate-300 hover:text-slate-600",
+                          : "text-ink-3 hover:text-slate-600",
                       )}
                     >
                       <Clock
@@ -676,7 +702,7 @@ export default function SessionsTable({
                               FOCUS_RING,
                               expanded
                                 ? "border-blue-200 bg-blue-50 text-blue-600"
-                                : "border-transparent text-slate-400 hover:border-slate-200 hover:bg-slate-100 hover:text-slate-700",
+                                : "border-transparent text-ink-3 hover:border-slate-200 hover:bg-slate-100 hover:text-slate-700",
                             )}
                           >
                             <CaretDown
@@ -706,7 +732,7 @@ export default function SessionsTable({
                                   className="inline-flex max-w-40 items-center gap-1 truncate rounded bg-slate-100 px-1.5 py-px text-[10px] text-slate-500"
                                   title={r.workspace_key ?? r.workspace_label ?? undefined}
                                 >
-                                  <FolderOpen size={11} className="shrink-0 text-slate-400" />
+                                  <FolderOpen size={11} className="shrink-0 text-ink-3" />
                                   <span className="truncate">{r.workspace_label}</span>
                                 </span>
                               )}
@@ -718,7 +744,7 @@ export default function SessionsTable({
                                   <span className="truncate">{r.agent}</span>
                                 </span>
                               )}
-                              <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] text-slate-400">
+                              <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] text-ink-3">
                                 {r.session_id.length > 12
                                   ? `${r.session_id.slice(0, 12)}…`
                                   : r.session_id}
@@ -731,7 +757,7 @@ export default function SessionsTable({
                                   title="Copy full session ID"
                                   aria-label="Copy session ID"
                                   className={cn(
-                                    "group/copy rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600",
+                                    "group/copy rounded p-0.5 text-ink-3 hover:bg-slate-100 hover:text-slate-600",
                                     CONTROL_EASE,
                                     "active:scale-90",
                                     FOCUS_RING,
@@ -780,7 +806,7 @@ export default function SessionsTable({
                         <div className="whitespace-nowrap font-medium text-slate-700">
                           {fmtRelative(r.last_seen)}
                         </div>
-                        <div className="mt-0.5 flex items-baseline gap-1.5 whitespace-nowrap text-[11px] text-slate-400">
+                        <div className="mt-0.5 flex items-baseline gap-1.5 whitespace-nowrap text-[11px] text-ink-3">
                           <span className="min-w-0 truncate">{fmtTs(r.last_seen)}</span>
                           <span className="tnum shrink-0 rounded bg-slate-100 px-1 py-px font-mono text-[10px] text-slate-500">
                             {fmtDurationMs(r.last_seen - r.first_seen)}
@@ -832,7 +858,7 @@ export default function SessionsTable({
                               className="rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-900/[0.06]"
                             >
                               <div className="rounded-[calc(1rem-0.25rem)] bg-white px-3.5 py-3.5 sm:px-4">
-                                <p className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-slate-900/[0.08] bg-slate-50 px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                                <p className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-slate-900/[0.08] bg-slate-50 px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-ink-3">
                                   <span aria-hidden="true" className="h-1 w-1 rounded-full bg-blue-600" />
                                   Telemetry diagnostics
                                 </p>
@@ -843,7 +869,7 @@ export default function SessionsTable({
                                     transition={{ type: "spring", stiffness: 380, damping: 34, delay: 0.04 }}
                                     className="min-w-0"
                                   >
-                                    <div className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                                    <div className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-ink-3">
                                       Identity
                                     </div>
                                     {title && (
@@ -862,7 +888,7 @@ export default function SessionsTable({
                                           void copyText(r.session_id, copyTag);
                                         }}
                                         className={cn(
-                                          "group/copybtn shrink-0 rounded-full border border-slate-200 bg-white p-2 text-slate-400 shadow-sm hover:border-slate-300 hover:text-slate-700",
+                                          "group/copybtn shrink-0 rounded-full border border-slate-200 bg-white p-2 text-ink-3 shadow-sm hover:border-slate-300 hover:text-slate-700",
                                           CONTROL_EASE,
                                           MAGNETIC_PRESS,
                                           FOCUS_RING,
@@ -903,7 +929,7 @@ export default function SessionsTable({
                                             void copyText(r.workspace_key ?? "", `ws:${key}`);
                                           }}
                                           className={cn(
-                                            "group/copybtn shrink-0 rounded-full border border-slate-200 bg-white p-2 text-slate-400 shadow-sm hover:border-slate-300 hover:text-slate-700",
+                                            "group/copybtn shrink-0 rounded-full border border-slate-200 bg-white p-2 text-ink-3 shadow-sm hover:border-slate-300 hover:text-slate-700",
                                             CONTROL_EASE,
                                             MAGNETIC_PRESS,
                                             FOCUS_RING,
@@ -929,18 +955,18 @@ export default function SessionsTable({
                                     transition={{ type: "spring", stiffness: 380, damping: 34, delay: 0.09 }}
                                     className="min-w-0"
                                   >
-                                    <div className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                                    <div className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-ink-3">
                                       Time window
                                     </div>
                                     <div className="mt-1.5 space-y-1 text-[11px]">
                                       <div className="flex items-baseline justify-between gap-2">
-                                        <span className="shrink-0 text-slate-400">Started</span>
+                                        <span className="shrink-0 text-ink-3">Started</span>
                                         <span className="tnum min-w-0 truncate font-mono text-slate-700" title={fmtFull(r.first_seen)}>
                                           {fmtFull(r.first_seen)}
                                         </span>
                                       </div>
                                       <div className="flex items-baseline justify-between gap-2">
-                                        <span className="shrink-0 text-slate-400">Last active</span>
+                                        <span className="shrink-0 text-ink-3">Last active</span>
                                         <span className="tnum min-w-0 truncate font-mono text-slate-700" title={fmtFull(r.last_seen)}>
                                           {fmtFull(r.last_seen)}
                                         </span>
@@ -955,10 +981,10 @@ export default function SessionsTable({
                                     <div className="tnum mt-1 font-mono text-[11px] text-slate-500">
                                       {r.messages.toLocaleString()} messages
                                     </div>
-                                    <div className="mt-1 text-[11px] text-slate-400">
+                                    <div className="mt-1 text-[11px] text-ink-3">
                                       {fmtRelative(r.last_seen)}
                                     </div>
-                                    <div className="mt-3 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                                    <div className="mt-3 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-ink-3">
                                       Models ({(r.models ?? [r.model]).length})
                                     </div>
                                     <div className="mt-1.5 flex flex-wrap gap-1">
@@ -981,7 +1007,7 @@ export default function SessionsTable({
                                     transition={{ type: "spring", stiffness: 380, damping: 34, delay: 0.14 }}
                                     className="min-w-0"
                                   >
-                                    <div className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400">
+                                    <div className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-ink-3">
                                       Token breakdown
                                     </div>
                                     <TokenBreakdown row={r} />
@@ -1001,7 +1027,7 @@ export default function SessionsTable({
           {sorted.length === 0 && (
             <div className="flex flex-col items-center gap-2 border-t border-slate-900/[0.06] px-4 py-10">
               <p className="text-sm font-medium text-slate-700">No sessions match these filters</p>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-ink-3">
                 Showing {rows.length.toLocaleString()} sessions in total. Loosen a filter to get rows back.
               </p>
               <button
@@ -1031,7 +1057,7 @@ export default function SessionsTable({
         {/* Pagination footer */}
         {sorted.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-slate-900/[0.06] bg-slate-50/60 px-4 py-2.5">
-            <span className="tnum min-w-0 font-mono text-xs text-slate-400" aria-live="polite" role="status">
+            <span className="tnum min-w-0 font-mono text-xs text-ink-3" aria-live="polite" role="status">
               Showing {rangeStart} to {rangeEnd} of {sorted.length.toLocaleString()} sessions
             </span>
             <div className="flex shrink-0 items-center gap-1.5" role="group" aria-label="Rows per page">
@@ -1060,7 +1086,7 @@ export default function SessionsTable({
               <button
                 type="button"
                 disabled={safePage === 0}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                onClick={() => setPage(Math.max(0, safePage - 1))}
                 aria-label="Previous page"
                 className={cn(
                   "group shrink-0 whitespace-nowrap rounded-full border border-slate-900/[0.08] bg-white px-3.5 py-1 text-xs font-medium text-slate-600 shadow-sm hover:border-slate-900/[0.16] hover:text-slate-900 disabled:opacity-40",
@@ -1071,13 +1097,13 @@ export default function SessionsTable({
               >
                 Prev
               </button>
-              <span className="tnum shrink-0 whitespace-nowrap px-1 py-1 font-mono text-xs text-slate-400" aria-live="polite">
+              <span className="tnum shrink-0 whitespace-nowrap px-1 py-1 font-mono text-xs text-ink-3" aria-live="polite">
                 {safePage + 1} of {pages}
               </span>
               <button
                 type="button"
                 disabled={safePage >= pages - 1}
-                onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
+                onClick={() => setPage(Math.min(pages - 1, safePage + 1))}
                 aria-label="Next page"
                 className={cn(
                   "group shrink-0 whitespace-nowrap rounded-full border border-slate-900/[0.08] bg-white px-3.5 py-1 text-xs font-medium text-slate-600 shadow-sm hover:border-slate-900/[0.16] hover:text-slate-900 disabled:opacity-40",
@@ -1147,7 +1173,7 @@ function TokenBreakdown({ row: r }: { row: SessionRowDTO }) {
             className="min-w-0 rounded-xl border border-slate-900/[0.06] bg-slate-50 px-2 py-1.5"
             title={s.value.toLocaleString()}
           >
-            <div className="truncate font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-slate-400">
+            <div className="truncate font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-ink-3">
               {s.label}
             </div>
             <div className="mt-0.5 font-mono text-xs font-semibold text-slate-900">
