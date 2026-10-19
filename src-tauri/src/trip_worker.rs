@@ -48,11 +48,15 @@ pub fn start_trip_worker(app: AppHandle) {
                 } else if trip.stop_mode == "idle" {
                     // Idle needs last activity: scan trip-scoped rows, take max ts.
                     // One priced scan per idle trip per minute (only while active).
+                    let pricing = app
+                        .try_state::<crate::AppState>()
+                        .and_then(|state| state.pricing());
                     let last = match crate::adapter::parse_to_snapshot_async(
                         None,
                         trip.clients.clone(),
                         None,
                         None,
+                        pricing,
                     )
                     .await
                     {

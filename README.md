@@ -73,7 +73,7 @@ TokenTracker makes a small, fixed set of outbound requests. None of them carry y
 
 **Never sent:** prompts or message content, session titles, token counts, costs, model usage, workspace/project names, file paths, API keys/credentials, or any user identifier.
 
-Pricing is cached on disk for 1 hour. At launch, if the cached catalog is older than that, it is refreshed automatically — no "refresh" click needed — so an online launch starts from data at most about an hour old, comfortably inside the 3-hour target. A session left running keeps its loaded catalog until restart. Offline, the last cached catalog (which may be older) is used instead of failing. Update checks are notify-only: nothing downloads, installs, or restarts without your click. During `npm run dev` only, a local Vite bridge on `localhost:1420` serves snapshot data to the browser; it is not part of the packaged app and never leaves the machine.
+Pricing is cached on disk for 1 hour. At launch, if the cached catalog is older than that, it is refreshed automatically — no "refresh" click needed — so an online launch starts from data at most about an hour old, comfortably inside the 3-hour target. While the app stays open, a 3-hour timer refreshes the catalog in a short-lived helper process, swaps the rebuilt catalog into the running app, and refreshes the dashboard so costs are recalculated — no restart or "refresh" click needed. Offline, the last cached catalog (which may be older) is used instead of failing. Update checks are notify-only: nothing downloads, installs, or restarts without your click. During `npm run dev` only, a local Vite bridge on `localhost:1420` serves snapshot data to the browser; it is not part of the packaged app and never leaves the machine.
 
 ## Tech stack
 

@@ -7,6 +7,8 @@
 use chrono::{Local, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
+use tokscale_core::pricing::PricingService;
 
 // ---------------------------------------------------------------------------
 // DTOs (serialized to the frontend)
@@ -154,14 +156,17 @@ fn load_user_tokscale_settings() -> (tokscale_core::scanner::ScannerSettings, to
 /// Pricing note: cost estimation is delegated to `tokscale-core`, which loads
 /// public pricing catalogs (LiteLLM, OpenRouter, models.dev) and caches them on
 /// disk for 1 hour (`pricing::cache::CACHE_TTL_SECS = 3600`), falling back to
-/// the stale cache offline. Those are catalog-only requests: no rows, token
-/// counts, costs, model usage, session titles, workspace names, or paths from
-/// this scan are included.
+/// the stale cache offline. While the app stays open, `lib.rs` refreshes the
+/// catalog every 3 hours in a short-lived helper process and swaps the rebuilt
+/// service in here. Those are catalog-only requests: no rows, token counts,
+/// costs, model usage, session titles, workspace names, or paths from this scan
+/// are included.
 pub async fn parse_to_snapshot_async(
     home: Option<String>,
     clients: Option<Vec<String>>,
     since: Option<String>,
     until: Option<String>,
+    pricing: Option<Arc<PricingService>>,
 ) -> Result<UsageSnapshotDTO, String> {
     let (scanner_settings, model_aliases) = if home.is_none() {
         load_user_tokscale_settings()
@@ -194,7 +199,19 @@ pub async fn parse_to_snapshot_async(
         scanner_settings,
     };
 
-    let unified = tokscale_core::parse_local_unified_messages(options).await?;
+    // Callers pass the current in-session pricing service so a refreshed
+    // catalog takes effect without restarting. `None` preserves the old
+    // behavior (initialize the process-global service) as a fallback.
+    let unified = match pricing {
+        Some(service) => {
+            tokscale_core::parse_local_unified_messages_with_pricing(
+                options,
+                Some(service.as_ref()),
+            )
+            .await?
+        }
+        None => tokscale_core::parse_local_unified_messages(options).await?,
+    };
     Ok(aggregate_unified_messages(&unified, since.as_deref(), until.as_deref()))
 }
 
@@ -734,7 +751,9 @@ pub fn parse_to_snapshot(
         .enable_all()
         .build()
         .map_err(|e| format!("tokio runtime: {e}"))?;
-    rt.block_on(parse_to_snapshot_async(home, clients, since, until))
+    rt.block_on(parse_to_snapshot_async(
+        home, clients, since, until, None,
+    ))
 }
 
 #[cfg(test)]

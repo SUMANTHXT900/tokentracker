@@ -1,7 +1,8 @@
 //! tokentracker Tauri 2 backend.
 //!
 //! Thin command layer over [`adapter`] (tokscale parsing) and [`trips`]
-//! (trip windows). No `tokscale_core` imports here — see `adapter.rs`.
+//! (trip windows). `tokscale_core` is used here only for the shared pricing
+//! service; parsing stays in `adapter.rs`.
 
 pub mod adapter;
 pub mod trip_worker;
@@ -11,8 +12,9 @@ pub mod window_state;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
-use tauri::{Manager, State};
+use std::sync::{Arc, Mutex};
+use tauri::{Emitter, Manager, State};
+use tokscale_core::pricing::PricingService;
 
 use adapter::{UsageSnapshotDTO, parse_to_snapshot_async};
 use trips::{TripConfig, capture_baseline, filter_rows_for_trip, trip_stop_now, trip_started_now_with_mode};
@@ -23,6 +25,43 @@ pub struct AppState {
     pub last_scan_at: Mutex<Option<String>>,
     /// Resolved in `setup()`; None in unit-test contexts without an app dir.
     pub trips_file: Mutex<Option<PathBuf>>,
+    /// Current pricing catalog. The 3-hour refresh swaps this for a catalog
+    /// rebuilt from the freshly refreshed disk cache.
+    pub pricing: Mutex<Option<Arc<PricingService>>>,
+}
+
+impl AppState {
+    pub fn pricing(&self) -> Option<Arc<PricingService>> {
+        self.pricing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub fn set_pricing(&self, service: Arc<PricingService>) {
+        *self
+            .pricing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(service);
+    }
+
+    /// First use loads/initializes the catalog (network if the cache is stale);
+    /// later calls reuse the in-session service.
+    pub async fn ensure_pricing(&self) -> Option<Arc<PricingService>> {
+        if let Some(service) = self.pricing() {
+            return Some(service);
+        }
+        match PricingService::get_or_init().await {
+            Ok(service) => {
+                self.set_pricing(service.clone());
+                Some(service)
+            }
+            Err(err) => {
+                eprintln!("tokentracker: pricing init failed: {err}");
+                None
+            }
+        }
+    }
 }
 
 /// Snapshot the in-memory trip state to disk (best-effort; logs on failure,
@@ -178,12 +217,14 @@ fn config_to_dto(t: &TripConfig) -> TripDTO {
 /// Scan local clients and return a usage snapshot.
 #[tauri::command]
 async fn cmd_scan(
+    state: State<'_, AppState>,
     home: Option<String>,
     clients: Option<Vec<String>>,
     since: Option<String>,
     until: Option<String>,
 ) -> Result<UsageSnapshotDTO, String> {
-    parse_to_snapshot_async(home, clients, since, until).await
+    let pricing = state.ensure_pricing().await;
+    parse_to_snapshot_async(home, clients, since, until, pricing).await
 }
 
 /// Frontend alias: get_usage_snapshot
@@ -194,7 +235,8 @@ async fn get_usage_snapshot(
     since: Option<String>,
     until: Option<String>,
 ) -> Result<UsageSnapshotDTO, String> {
-    let mut snap = parse_to_snapshot_async(None, clients, since, until).await?;
+    let pricing = state.ensure_pricing().await;
+    let mut snap = parse_to_snapshot_async(None, clients, since, until, pricing).await?;
     // Frontend uses daily/models/sessions/projects rollups; omit the 30k+ raw rows over IPC.
     snap.rows.clear();
     if let Ok(mut l) = state.last_scan_at.lock() {
@@ -206,7 +248,8 @@ async fn get_usage_snapshot(
 #[tauri::command]
 async fn rescan_now(state: State<'_, AppState>) -> Result<RescanResultDTO, String> {
     let t0 = std::time::Instant::now();
-    let snap = parse_to_snapshot_async(None, None, None, None).await?;
+    let pricing = state.ensure_pricing().await;
+    let snap = parse_to_snapshot_async(None, None, None, None, pricing).await?;
     if let Ok(mut l) = state.last_scan_at.lock() {
         *l = Some(chrono::Utc::now().to_rfc3339());
     }
@@ -371,7 +414,8 @@ async fn get_trip(state: State<'_, AppState>, trip_id: String) -> Result<TripDet
     };
     let dto = config_to_dto(&trip);
     // Live delta: scan now and filter to trip window
-    let snap = parse_to_snapshot_async(None, trip.clients.clone(), None, None).await?;
+    let pricing = state.ensure_pricing().await;
+    let snap = parse_to_snapshot_async(None, trip.clients.clone(), None, None, pricing).await?;
     let rows = filter_rows_for_trip(&snap.rows, &trip);
     let tokens: i64 = rows
         .iter()
@@ -415,6 +459,62 @@ async fn get_trip(state: State<'_, AppState>, trip_id: String) -> Result<TripDet
 // App entry
 // ---------------------------------------------------------------------------
 
+const PRICING_REFRESH_SECS: u64 = 3 * 60 * 60;
+
+fn pricing_refresh_interval() -> std::time::Duration {
+    // Test hook: a short interval lets the integration test exercise the swap
+    // without waiting three hours.
+    std::env::var("TOKENTRACKER_PRICING_REFRESH_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(std::time::Duration::from_secs(PRICING_REFRESH_SECS))
+}
+
+/// Refresh pricing while the app stays open. The helper is a fresh process, so
+/// `tokscale-core` re-checks its 1-hour on-disk TTL instead of the in-process
+/// `OnceCell` pinning the startup catalog forever.
+fn start_pricing_refresh(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(pricing_refresh_interval()).await;
+            if let Err(err) = refresh_pricing(&app).await {
+                eprintln!("tokentracker: pricing refresh failed: {err}");
+                tokio::time::sleep(std::time::Duration::from_secs(30 * 60)).await;
+            }
+        }
+    });
+}
+
+async fn refresh_pricing(app: &tauri::AppHandle) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let status = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(exe)
+            .arg("--refresh-pricing")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+    })
+    .await
+    .map_err(|e| format!("refresh task: {e}"))?
+    .map_err(|e| format!("refresh helper: {e}"))?;
+
+    if !status.success() {
+        return Err(format!("refresh helper exited with {status}"));
+    }
+
+    let service = PricingService::load_cached_any_age()
+        .ok_or_else(|| "refresh produced no cached pricing".to_string())?;
+    let has_data = service.has_pricing_data();
+    app.state::<AppState>().set_pricing(Arc::new(service));
+    // Reuse the watcher channel: the dashboard refetches and recomputes costs
+    // with the new catalog.
+    let _ = app.emit("usage://updated", ());
+    eprintln!("tokentracker: pricing catalog refreshed (has_data={has_data})");
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -429,6 +529,7 @@ pub fn run() {
             trips: Mutex::new(Vec::new()),
             last_scan_at: Mutex::new(None),
             trips_file: Mutex::new(None),
+            pricing: Mutex::new(None),
         })
         .manage(watcher::WatcherState::default())
         .setup(|app| {
@@ -493,6 +594,7 @@ pub fn run() {
             }
             watcher::start_watcher(app.handle().clone());
             trip_worker::start_trip_worker(app.handle().clone());
+            start_pricing_refresh(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
