@@ -632,10 +632,8 @@ export default function App() {
       {/* ── Cupertino telemetry rail (fixed chrome) ─────────────────────── */}
       <div
         className={cn(
-          "relative sticky top-10 z-30 h-[calc(100dvh-2.5rem)] shrink-0 p-3 pr-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-          // Layout width follows the pinned state only. Hover expansion
-          // overlays instead of shoving content (Aceternity sidebar feel).
-          !sidebarCollapsed ? "w-[268px]" : "w-[88px]",
+          "sticky top-10 z-30 h-[calc(100dvh-2.5rem)] shrink-0 p-3 pr-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          railExpanded ? "w-[268px]" : "w-[88px]",
         )}
         onMouseEnter={() => {
           if (sidebarCollapsed) setRailHover(true);
@@ -648,10 +646,7 @@ export default function App() {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setRailHover(false);
         }}
       >
-      <aside aria-label="Primary" className={cn(
-        "flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-hairline bg-card/90 p-2 shadow-[0_24px_60px_-32px_rgba(16,24,40,0.28)] backdrop-blur-xl",
-        sidebarCollapsed && railHover && "absolute bottom-3 left-3 top-3 z-50 h-auto w-[244px] shadow-[0_32px_80px_-24px_rgba(16,24,40,0.45)]",
-      )}>
+      <aside aria-label="Primary" className="flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-hairline bg-card/90 p-2 shadow-[0_24px_60px_-32px_rgba(16,24,40,0.28)] backdrop-blur-xl">
         {/* Brand medallion — light instrument plate */}
         <div className="rounded-[1.25rem] border border-hairline bg-tray p-1.5">
         <div className={cn("flex items-center gap-2.5 rounded-[0.9rem] border border-hairline bg-card px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]", !railExpanded && "justify-center gap-0 px-0")}>
