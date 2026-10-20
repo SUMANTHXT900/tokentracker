@@ -34,6 +34,8 @@ export interface DailyDTO {
   input: number;
   output: number;
   cache_read: number;
+  cache_write: number;
+  reasoning: number;
 }
 
 export interface ModelRowDTO {
@@ -63,6 +65,7 @@ export interface SessionRowDTO {
   input?: number;
   output?: number;
   cache_read?: number;
+  cache_write?: number;
   reasoning?: number;
   cost: number;
   messages: number;

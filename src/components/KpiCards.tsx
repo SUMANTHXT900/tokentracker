@@ -2,14 +2,57 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { CurrencyDollar, Database, Flame, TerminalWindow } from "@phosphor-icons/react";
 import type { DailyDTO, UsageSnapshotDTO } from "../lib/tauri";
-import { fmtCost, fmtPct, fmtTokens, splitTokens } from "../lib/format";
+import { fmtCost, fmtCostPrecise, fmtPct, fmtTokens, splitTokens } from "../lib/format";
 import { getClientVisual } from "../lib/client-color";
 import { cn } from "../lib/cn";
+import { useStore } from "../store";
 
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
+const DAY_MS = 86_400_000;
+const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 function toFiniteTotal(n: unknown): number {
   return typeof n === "number" && Number.isFinite(n) ? n : 0;
+}
+
+/** UTC day index for an ISO YYYY-MM-DD date. UTC avoids DST hour drift; null for junk. */
+function dayIndexOf(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const iso = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const ms = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isFinite(ms) ? Math.floor(ms / DAY_MS) : null;
+}
+
+function isoDay(index: number): string {
+  return new Date(index * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** Local "today" as a UTC day index, matching the ISO dates the backend sends. */
+function todayDayIndex(): number {
+  const now = new Date();
+  return Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / DAY_MS);
+}
+
+/** "Oct 19" — unambiguous month/day in 10px mono rows. */
+function fmtDayLabel(value: unknown): string {
+  if (typeof value !== "string" || value.length < 10) return "—";
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  if (
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return "—";
+  }
+  return `${MONTH_LABELS[month - 1]} ${day}`;
 }
 
 /** rAF count-up from the previously displayed value (never flashes from 0
@@ -48,20 +91,73 @@ function useCountUp(target: number, duration = 900): number {
 
 function Skeleton() {
   return (
-    <div
-      aria-hidden
-      className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
-    >
+    <div aria-hidden className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
       {[0, 1, 2, 3].map((i) => (
         <div
           key={i}
-          className="rounded-2xl border border-[#E4E1E8] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]"
+          className="flex min-h-[228px] flex-col rounded-[22px] border border-[#E4E1E8] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]"
         >
-          <div className="h-3 w-24 animate-pulse rounded bg-zinc-100" />
-          <div className="mt-3 h-8 w-28 animate-pulse rounded bg-zinc-100" />
-          <div className="mt-3 h-3 w-32 animate-pulse rounded bg-zinc-100" />
+          <div className="flex items-center justify-between gap-2">
+            <div className="h-3 w-24 animate-pulse rounded bg-zinc-100 motion-reduce:animate-none" />
+            <div className="h-7 w-7 animate-pulse rounded-full bg-zinc-100 motion-reduce:animate-none" />
+          </div>
+          <div className="mt-5 h-11 w-36 animate-pulse rounded bg-zinc-100 motion-reduce:animate-none" />
+          <div className="mt-auto border-t border-[#F0EDEF] pt-3">
+            <div className="flex min-h-[76px] flex-col justify-between gap-2">
+              <div className="h-2.5 w-full animate-pulse rounded bg-zinc-100 motion-reduce:animate-none" />
+              <div className="h-3 w-32 animate-pulse rounded bg-zinc-100 motion-reduce:animate-none" />
+              <div className="h-3 w-24 animate-pulse rounded bg-zinc-100 motion-reduce:animate-none" />
+            </div>
+          </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+const UNIT_WORD: Record<string, string> = {
+  "": "Tokens",
+  k: "Thousand",
+  M: "Million",
+  B: "Billion",
+};
+
+function HeroFigure({
+  num,
+  fraction,
+  unit,
+  unitClass,
+  badge,
+}: {
+  num: string;
+  fraction?: string;
+  unit: string;
+  unitClass?: string;
+  badge?: React.ReactNode;
+}) {
+  // Four-digit day totals are the only realistic 4-up overflow; shave the
+  // numeral a little rather than letting it run under the card edge.
+  const dense = num.length + (fraction?.length ?? 0) >= 10;
+  return (
+    <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1.5">
+      <span
+        className={cn(
+          "tnum whitespace-nowrap font-display font-extrabold leading-[0.9] tracking-[-0.05em] text-[#111217] 2xl:text-[48px]",
+          dense ? "text-[40px]" : "text-[44px]",
+        )}
+      >
+        {num}
+        {fraction ? <span className="text-[0.6em] tracking-[-0.02em]">{fraction}</span> : null}
+      </span>
+      <span
+        className={cn(
+          "whitespace-nowrap font-display text-[19px] font-bold leading-none tracking-[-0.02em]",
+          unitClass ?? "text-[#414755]",
+        )}
+      >
+        {unit}
+      </span>
+      {badge}
     </div>
   );
 }
@@ -70,6 +166,8 @@ function Card({
   index,
   label,
   icon,
+  accent,
+  glow,
   figure,
   children,
   reduceMotion,
@@ -77,6 +175,8 @@ function Card({
   index: number;
   label: string;
   icon: React.ReactNode;
+  accent: string;
+  glow: string;
   figure: React.ReactNode;
   children: React.ReactNode;
   reduceMotion: boolean;
@@ -86,19 +186,35 @@ function Card({
       initial={reduceMotion ? false : { opacity: 0, y: 14 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-32px" }}
-      transition={{ duration: 0.55, delay: reduceMotion ? 0 : index * 0.07, ease: EASE }}
-      className="flex flex-col justify-between rounded-2xl border border-[#E4E1E8] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)] transition-colors duration-200 hover:border-[#C9C4D6] focus-within:border-[#0058bc]"
+      transition={{ duration: 0.55, delay: reduceMotion ? 0 : index * 0.06, ease: EASE }}
+      className="relative flex min-h-[184px] flex-col justify-between overflow-hidden rounded-[22px] border border-[#E4E1E8] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_8px_24px_-18px_rgba(16,24,40,0.28)] transition-colors duration-200 hover:border-[#CFCBD8]"
     >
-      <div className="space-y-1">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full blur-2xl"
+        style={{ background: glow }}
+      />
+      <span aria-hidden className="absolute inset-x-0 top-0 h-px" style={{ background: accent }} />
+      <div className="relative min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-sans text-[12px] font-medium text-[#414755]">{label}</span>
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0058bc]/10 text-[#0058bc]">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-3">
+            {label}
+          </span>
+          <span
+            aria-hidden
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+            style={{ background: `${accent}14`, color: accent }}
+          >
             {icon}
           </span>
         </div>
-        <div className="flex items-baseline gap-2 pt-1">{figure}</div>
+        <div className="mt-4">{figure}</div>
       </div>
-      <div className="mt-3 space-y-2 border-t border-[#F0EDEF] pt-3">{children}</div>
+      {/* Fixed footer band keeps the hairline and the bottom row on one
+          baseline across all four cards, regardless of figure wrapping. */}
+      <div className="relative mt-4 border-t border-[#F0EDEF] pt-3">
+        <div className="flex min-h-[76px] flex-col justify-between gap-2">{children}</div>
+      </div>
     </motion.div>
   );
 }
@@ -111,6 +227,10 @@ export default function KpiCards({
   isFetching?: boolean;
 }) {
   const reduceMotion = useReducedMotion() ?? false;
+  // The selected range lives in the app store; reading it keeps the strip and
+  // denominator tied to the filter without changing this component's props.
+  const rangeSince = useStore((s) => s.since);
+  const rangeUntil = useStore((s) => s.until);
   // All hooks run before the `if (!snap)` return (Rules of Hooks). Targets
   // use double optional-chaining: `snap?.sessions.length` would still throw
   // when snap exists but sessions is undefined.
@@ -136,31 +256,33 @@ export default function KpiCards({
 
   if (!snap) return <Skeleton />;
 
-  // ── Data logic (verbatim from previous implementation) ──
+  // ── Data logic ──
   // Defensive array defaults: a partial backend payload must render zeros,
   // never throw (thrown render errors blank the whole app).
   const daily: DailyDTO[] = Array.isArray(snap.daily) ? snap.daily : [];
   const models = Array.isArray(snap.models) ? snap.models : [];
   const sessions = Array.isArray(snap.sessions) ? snap.sessions : [];
   const projects = Array.isArray(snap.projects) ? snap.projects : [];
-  const clients: string[] = Array.isArray(snap.clients) ? snap.clients : [];
   const totalCost = toFiniteTotal(snap.total_cost);
   const totalTokens = toFiniteTotal(snap.total_tokens);
   const totalMessages = toFiniteTotal(snap.total_messages);
-  const activeDays = daily.filter((d) => (d?.tokens ?? 0) > 0).length;
-  const totalDays = daily.length;
+  const sortedDaily = [...daily].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const activeDays = sortedDaily.filter((d) => (d?.tokens ?? 0) > 0).length;
   const avgPerDay = activeDays > 0 ? totalCost / activeDays : 0;
-  const peak = daily.reduce<DailyDTO | null>(
+  const peak = sortedDaily.reduce<DailyDTO | null>(
     (best, d) => (!best || (d?.cost ?? 0) > (best?.cost ?? 0) ? d : best),
     null,
   );
 
   const cacheRead = models.reduce((a, m) => a + (m?.cache_read ?? 0), 0);
+  const cacheWrite = models.reduce((a, m) => a + (m?.cache_write ?? 0), 0);
   const plainInput = models.reduce((a, m) => a + (m?.input ?? 0), 0);
   const cacheDenom = cacheRead + plainInput;
   const cacheHit = cacheDenom > 0 ? cacheRead / cacheDenom : 0;
 
-  const totalIn = models.reduce((a, m) => a + (m?.input ?? 0) + (m?.cache_read ?? 0), 0);
+  // Five additive buckets: plain input, output, cache read, cache write,
+  // reasoning. Cache is listed separately so nothing is double-counted.
+  const totalIn = plainInput;
   const totalOut = models.reduce((a, m) => a + (m?.output ?? 0), 0);
   const totalReasoning = models.reduce((a, m) => a + (m?.reasoning ?? 0), 0);
 
@@ -171,69 +293,169 @@ export default function KpiCards({
       p.workspace_label !== "(unknown)" &&
       ((p?.sessions ?? 0) > 0 || (p?.tokens ?? 0) > 0),
   ).length;
-  const avgTokensPerSession =
-    sessions.length > 0 ? totalTokens / sessions.length : 0;
-  const avgCostPerSession =
-    sessions.length > 0 ? totalCost / sessions.length : 0;
+  // Session averages use the session population, not global totals: the
+  // backend totals include recovery-floor rows that intentionally have no
+  // session entry, so total/session would be inflated.
+  const sessionTokens = sessions.reduce((a, s) => a + s.tokens, 0);
+  const sessionCost = sessions.reduce((a, s) => a + (s.cost ?? 0), 0);
+  const avgTokensPerSession = sessions.length > 0 ? sessionTokens / sessions.length : 0;
+  const avgCostPerSession = sessions.length > 0 ? sessionCost / sessions.length : 0;
+  const freeSpend = totalCost <= 0 && totalTokens > 0;
 
   const tok = splitTokens(reduceMotion ? totalTokens : animatedTokens);
-  const costLabel = fmtCost(reduceMotion ? totalCost : animatedCost);
+  const unitWord = UNIT_WORD[tok.unit] ?? "Tokens";
   const sessionLabel = Math.round(reduceMotion ? sessions.length : animatedSessions).toLocaleString();
   const activeLabel = Math.round(reduceMotion ? activeDays : animatedActiveDays);
   const msgLabel = Math.round(reduceMotion ? totalMessages : animatedMessages).toLocaleString();
 
-  const uptime = totalDays > 0 ? activeDays / totalDays : 0;
+  // Hero cost is split so cents can ride smaller. Above $9,999 we round to
+  // whole dollars: it keeps the 44px numeral inside a 1280px 4-up card.
+  const displayCost = reduceMotion ? totalCost : animatedCost;
+  // Sub-cent spend must not collapse to "$0.00" while the client menu says Free.
+  const costLabel =
+    displayCost > 0 && displayCost < 0.01
+      ? fmtCostPrecise(displayCost)
+      : fmtCost(displayCost);
+  const subCent = displayCost > 0 && displayCost < 0.01;
+  const costParts = costLabel.match(/^(.*?)([.,]\d{2})$/);
+  const costWholeLabel = costParts ? costParts[1] : costLabel;
+  const costCents = costParts ? costParts[2] : "";
+  const showCostCents = !subCent && costWholeLabel.length <= 6;
+  const costWhole = subCent
+    ? costLabel
+    : showCostCents
+      ? costWholeLabel
+      : `$${Math.round(displayCost).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const costFraction = showCostCents ? costCents : "";
+
   const peakShare = totalCost > 0 && peak ? (peak?.cost ?? 0) / totalCost : 0;
-  const visibleClients = clients.slice(0, 4).map((c) => getClientVisual(c));
-  const overflowClients = Math.max(0, clients.length - 4);
+  const peakDay = totalCost > 0 && peak ? fmtDayLabel(peak.date) : "—";
+
+  // Top client by session count — separate, labelled context for the
+  // active-days card so the orange strip below can never read as a share bar.
+  const perClient = new Map<string, number>();
+  for (const s of sessions) perClient.set(s.client, (perClient.get(s.client) ?? 0) + 1);
+  const topClientEntry = [...perClient.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  )[0];
+  const topClientVisual = topClientEntry ? getClientVisual(topClientEntry[0]) : null;
+  const topClient =
+    topClientEntry && topClientVisual
+      ? {
+          label: topClientVisual.label || "Unknown",
+          hex: topClientVisual.hex,
+          sessions: topClientEntry[1],
+        }
+      : null;
+
+  // `daily` is sparse (one row per recorded day). Build a real calendar grid
+  // from the selected range so gaps are empty days, not compressed rows.
+  const tokensByDay = new Map<number, number>();
+  let earliestDay: number | null = null;
+  for (const d of sortedDaily) {
+    const day = dayIndexOf(d?.date);
+    if (day === null) continue;
+    const tokens =
+      typeof d?.tokens === "number" && Number.isFinite(d.tokens) ? Math.max(0, d.tokens) : 0;
+    tokensByDay.set(day, (tokensByDay.get(day) ?? 0) + tokens);
+    earliestDay = earliestDay === null ? day : Math.min(earliestDay, day);
+  }
+
+  // The selected range is authoritative for the denominator and the strip;
+  // data-derived dates are only the all-time fallback. Future days are not
+  // "inactive" yet, so the window never runs past today.
+  const today = todayDayIndex();
+  const sinceDay = dayIndexOf(rangeSince ?? "");
+  const untilDay = dayIndexOf(rangeUntil ?? "");
+  const rangeEnd = untilDay !== null ? Math.min(untilDay, today) : today;
+  const rangeStartRaw = sinceDay !== null ? sinceDay : earliestDay;
+  const rangeStart = rangeStartRaw !== null ? Math.min(rangeStartRaw, rangeEnd) : null;
+  const rangeDays = rangeStart !== null ? Math.max(1, rangeEnd - rangeStart + 1) : 0;
+  const totalDays = Math.max(rangeDays, activeDays);
+
+  // Last 30 calendar days of that range (fewer when the range is shorter).
+  const windowStart = Math.min(
+    rangeEnd,
+    sinceDay !== null ? Math.max(sinceDay, rangeEnd - 29) : rangeEnd - 29,
+  );
+  const windowDays = rangeEnd - windowStart + 1;
+  const activityDays: Array<{ date: string; tokens: number }> = [];
+  for (let i = 0; i < windowDays; i++) {
+    const day = windowStart + i;
+    const date = isoDay(day);
+    activityDays.push({ date, tokens: tokensByDay.get(day) ?? 0 });
+  }
+  const windowActive = activityDays.reduce(
+    (count, day) => (day.tokens > 0 ? count + 1 : count),
+    0,
+  );
+  const windowLabel = windowDays === 1 ? "Last 1 day" : `Last ${windowDays} days`;
+  const uptime = totalDays > 0 ? activeDays / totalDays : 0;
 
   return (
     <section aria-label="Totals">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
         {/* Tile 1 — Hero spend */}
         <Card
           index={0}
           reduceMotion={reduceMotion}
-          label="Total Spend (Past 30 Days)"
-          icon={<CurrencyDollar size={17} aria-hidden />}
+          label="Total Spend"
+          accent="#059669"
+          glow="radial-gradient(circle, rgba(5,150,105,0.16) 0%, rgba(5,150,105,0) 70%)"
+          icon={<CurrencyDollar size={16} weight="bold" />}
           figure={
-            <>
-              <span className="tnum font-mono text-[28px] font-semibold leading-[34px] tracking-[-0.02em] text-[#1b1b1d]">
-                {costLabel}
-              </span>
-              <span className="font-sans text-[12px] text-ink-3">USD</span>
-              {isFetching && (
-                <span
-                  title="Syncing"
-                  className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#0070eb]"
-                />
-              )}
-            </>
+            <HeroFigure
+              num={costWhole}
+              fraction={costFraction}
+              unit="USD"
+              unitClass="text-[#006b27]"
+              badge={
+                freeSpend ? (
+                  <span className="ml-1 rounded-full bg-[#34C759]/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#006b27]">
+                    Free
+                  </span>
+                ) : isFetching ? (
+                  <span
+                    role="status"
+                    aria-label="Syncing latest data"
+                    title="Syncing"
+                    className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#0070eb] motion-reduce:animate-none"
+                  />
+                ) : null
+              }
+            />
           }
         >
-          <div className="flex items-center justify-between font-sans text-[11px]">
+          <div className="flex items-center gap-1.5 font-sans text-[11px]">
             <span className="tnum rounded-full bg-[#34C759]/[0.12] px-2 py-0.5 font-semibold text-[#006b27]">
-              {activeDays > 0 ? `${fmtCost(avgPerDay)} / active day` : "no activity yet"}
+              {freeSpend
+                ? "No metered spend"
+                : activeDays > 0
+                  ? `${fmtCost(avgPerDay)} / active day`
+                  : "no activity yet"}
             </span>
-            {peak && (peak?.cost ?? 0) > 0 && (
-              <span className="tnum text-ink-3">Peak {fmtCost(peak.cost)}</span>
-            )}
           </div>
-          <div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0EDEF]">
-              <motion.div
-                initial={reduceMotion ? false : { scaleX: 0 }}
-                whileInView={{ scaleX: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.8, ease: EASE }}
-                style={{ width: `${Math.min(100, Math.max(0, peakShare * 100))}%` }}
-                className="h-full origin-left rounded-full bg-gradient-to-r from-[#0058bc] to-[#007AFF]"
-              />
-            </div>
-            <div className="tnum flex items-center justify-between pt-1 font-mono text-[10px] text-ink-3">
-              <span>{fmtPct(peakShare)} peak-day share</span>
-              <span>{totalDays > 0 ? `${activeDays}/${totalDays} days` : "—"}</span>
-            </div>
+          <div
+            aria-hidden
+            className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0EDEF]"
+          >
+            <motion.div
+              initial={reduceMotion ? false : { scaleX: 0 }}
+              whileInView={{ scaleX: 1 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8, ease: EASE }}
+              style={{ width: `${Math.min(100, Math.max(0, peakShare * 100))}%` }}
+              className="h-full origin-left rounded-full bg-gradient-to-r from-[#059669] to-[#34C759]"
+            />
+          </div>
+          <div
+            className="tnum flex items-center justify-between gap-2 font-mono text-[10px] text-ink-3"
+            title="Peak day cost and its share of total spend"
+          >
+            <span>
+              {peak && (peak?.cost ?? 0) > 0 ? `Peak ${fmtCost(peak.cost)}` : "No spend peak"}
+            </span>
+            <span>{peakShare > 0 ? `${fmtPct(peakShare)} of spend` : "—"}</span>
           </div>
         </Card>
 
@@ -242,33 +464,42 @@ export default function KpiCards({
           index={1}
           reduceMotion={reduceMotion}
           label="Total Tokens"
-          icon={<Database size={17} aria-hidden />}
+          accent="#2563eb"
+          glow="radial-gradient(circle, rgba(37,99,235,0.15) 0%, rgba(37,99,235,0) 70%)"
+          icon={<Database size={16} weight="bold" />}
           figure={
-            <>
-              <span className="tnum font-mono text-[28px] font-semibold leading-[34px] tracking-[-0.02em] text-[#1b1b1d]">
-                {tok.num}
-                {tok.unit}
-              </span>
-              <span className="font-sans text-[12px] text-ink-3">aggregated stream</span>
-            </>
+            <HeroFigure
+              num={tok.num}
+              unit={unitWord}
+              unitClass="text-[#1d4ed8]"
+            />
           }
         >
-          <div className="tnum flex items-center justify-between font-mono text-[11px] text-[#414755]">
-            <span className="inline-flex items-center gap-1.5">
+          <div className="tnum flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-[11px] text-[#414755]">
+            <span
+              className="inline-flex items-center gap-1.5"
+              title="Plain input tokens — cache is listed separately"
+            >
               <span className="h-2 w-2 rounded-full bg-[#0070eb]" aria-hidden />
-              In: {fmtTokens(totalIn)}
+              In {fmtTokens(totalIn)}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-[#AF52DE]" aria-hidden />
-              Out: {fmtTokens(totalOut)}
+              Out {fmtTokens(totalOut)}
             </span>
           </div>
-          <div className="tnum flex items-center justify-between rounded-md bg-[#F6F3F5] px-2 py-1 font-mono text-[11px]">
-            <span className="font-sans text-[#414755]">Cache Hit Rate</span>
-            <span className="font-semibold text-[#006b27]">{fmtTokens(cacheRead)} cached · {fmtPct(cacheHit)} hit</span>
+          <div className="tnum flex flex-wrap items-center justify-between gap-1 rounded-md bg-[#F6F3F5] px-2 py-1 font-mono text-[10px]">
+            <span className="font-sans text-[#414755]">
+              Cache {fmtTokens(cacheRead)} read
+            </span>
+            <span className="font-semibold text-[#006b27]">
+              {fmtTokens(cacheWrite)} write · {fmtPct(cacheHit)}
+            </span>
           </div>
-          <p className="tnum font-mono text-[11px] text-slate-500">Reasoning: {fmtTokens(totalReasoning)}</p>
-          <p className="tnum font-mono text-[10px] text-ink-3">{msgLabel} messages</p>
+          <div className="tnum flex items-center justify-between font-mono text-[10px] text-ink-3">
+            <span>Reasoning {fmtTokens(totalReasoning)}</span>
+            <span>{msgLabel} messages</span>
+          </div>
         </Card>
 
         {/* Tile 3 — Sessions */}
@@ -276,26 +507,21 @@ export default function KpiCards({
           index={2}
           reduceMotion={reduceMotion}
           label="Agent Sessions"
-          icon={<TerminalWindow size={17} aria-hidden />}
-          figure={
-            <>
-              <span className="tnum font-mono text-[28px] font-semibold leading-[34px] tracking-[-0.02em] text-[#1b1b1d]">
-                {sessionLabel}
-              </span>
-              <span className="font-sans text-[12px] text-ink-3">invocations</span>
-            </>
-          }
+          accent="#0891b2"
+          glow="radial-gradient(circle, rgba(8,145,178,0.14) 0%, rgba(8,145,178,0) 70%)"
+          icon={<TerminalWindow size={16} weight="bold" />}
+          figure={<HeroFigure num={sessionLabel} unit="Sessions" unitClass="text-[#0e7490]" />}
         >
           <div className="flex items-center justify-between font-sans text-[11px]">
-            <span className="text-[#414755]">Avg / Session</span>
-            <span className="tnum font-mono text-[12px] font-semibold text-[#1b1b1d]">
-              {fmtTokens(avgTokensPerSession)} tokens
+            <span className="text-[#414755]">Avg / session</span>
+            <span className="tnum font-mono text-[11px] font-semibold text-[#1b1b1d]">
+              {fmtTokens(avgTokensPerSession)} tok
             </span>
           </div>
           <div className="flex items-center justify-between font-sans text-[11px]">
-            <span className="text-[#414755]">Avg Cost / Turn</span>
-            <span className="tnum font-mono text-[12px] font-semibold text-[#1b1b1d]">
-              {fmtCost(avgCostPerSession)} USD
+            <span className="text-[#414755]">Avg cost / session</span>
+            <span className="tnum font-mono text-[11px] font-semibold text-[#1b1b1d]">
+              {fmtCost(avgCostPerSession)}
             </span>
           </div>
           <p className="tnum font-mono text-[10px] text-ink-3">
@@ -308,44 +534,97 @@ export default function KpiCards({
           index={3}
           reduceMotion={reduceMotion}
           label="Active Coding Days"
-          icon={<Flame size={17} aria-hidden />}
+          accent="#ea580c"
+          glow="radial-gradient(circle, rgba(234,88,12,0.14) 0%, rgba(234,88,12,0) 70%)"
+          icon={<Flame size={16} weight="bold" />}
           figure={
-            <>
-              <span className="tnum font-mono text-[28px] font-semibold leading-[34px] tracking-[-0.02em] text-[#1b1b1d]">
-                {activeLabel} / {totalDays || "—"}
-              </span>
-              <span className="font-sans text-[12px] text-ink-3">{fmtPct(uptime)} uptime</span>
-            </>
+            <HeroFigure
+              num={`${activeLabel}${totalDays ? ` / ${totalDays}` : ""}`}
+              unit="Days Active"
+              unitClass="text-[#c2410c]"
+              badge={
+                <span
+                  className="tnum ml-1 whitespace-nowrap rounded-full bg-orange-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-orange-700"
+                  title="Active days / calendar days in the selected range"
+                >
+                  {totalDays > 0 ? `${fmtPct(uptime)} uptime` : "no data"}
+                </span>
+              }
+            />
           }
         >
-          <div className="flex items-center justify-between font-sans text-[11px]">
-            <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/10 px-2 py-0.5 font-semibold text-orange-700">
-              <Flame size={12} aria-hidden />
-              {visibleClients.length > 0
-                ? `${visibleClients[0].label}${overflowClients > 0 ? ` +${overflowClients}` : ""}`
-                : "no clients"}
-            </span>
-            {peak && peak?.date && (
-              <span className="tnum text-ink-3">
-                Peak:{" "}
-                {(() => {
-                  if (typeof peak.date !== "string") return "—";
-                  const parts = peak.date.split("-");
-                  if (parts.length < 3 || !parts[1] || !parts[2]) return peak.date;
-                  return `${parts[1]}/${parts[2]}`;
-                })()}
-              </span>
-            )}
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-3">
+                Top client
+              </div>
+              <div
+                className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-[#9a3412]"
+                title={
+                  topClient
+                    ? `Top client: ${topClient.label} · ${topClient.sessions} sessions`
+                    : "No client sessions"
+                }
+              >
+                {topClient ? (
+                  <span
+                    aria-hidden
+                    className="h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-black/5"
+                    style={{ background: topClient.hex }}
+                  />
+                ) : null}
+                <span className="truncate">{topClient ? topClient.label : "No sessions"}</span>
+                {topClient ? (
+                  <span className="tnum shrink-0 text-[10px] font-semibold text-ink-3">
+                    · {topClient.sessions}
+                    <span className="hidden 2xl:inline">
+                      {topClient.sessions === 1 ? " session" : " sessions"}
+                    </span>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-3">
+                Peak spend
+              </div>
+              <div className="tnum mt-0.5 font-mono text-[11px] font-semibold text-ink">
+                {peakDay}
+              </div>
+            </div>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0EDEF]">
-            <motion.div
-              initial={reduceMotion ? false : { scaleX: 0 }}
-              whileInView={{ scaleX: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8, ease: EASE }}
-              style={{ width: `${Math.min(100, Math.max(0, uptime * 100))}%` }}
-              className="h-full origin-left rounded-full bg-orange-500"
-            />
+          <div>
+            <div
+              role="img"
+              aria-label={`Daily activity, ${windowLabel.toLowerCase()}: ${windowActive} active ${
+                windowActive === 1 ? "day" : "days"
+              }`}
+              className="ml-auto grid h-2.5 items-end gap-[2px]"
+              style={{
+                width: `min(100%, ${windowDays * 24}px)`,
+                gridTemplateColumns: `repeat(${windowDays}, minmax(0, 1fr))`,
+              }}
+            >
+              {activityDays.map((day) => (
+                <span
+                  key={day.date}
+                  title={`${fmtDayLabel(day.date)} · ${
+                    day.tokens > 0 ? `${fmtTokens(day.tokens)} tokens` : "no activity"
+                  }`}
+                  className={cn(
+                    "min-w-0 rounded-[2px]",
+                    day.tokens > 0 ? "bg-[#ea580c]" : "bg-[#E4E1E8]",
+                  )}
+                  style={{ height: day.tokens > 0 ? "100%" : "30%" }}
+                />
+              ))}
+            </div>
+            <div className="tnum flex items-center justify-between pt-1 font-mono text-[10px] text-ink-3">
+              <span>{windowLabel}</span>
+              <span>
+                {windowActive}/{windowDays} active
+              </span>
+            </div>
           </div>
         </Card>
       </div>

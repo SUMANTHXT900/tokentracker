@@ -3,17 +3,22 @@ import { motion, useReducedMotion } from "motion/react";
 import * as echarts from "echarts";
 import { ArrowRight, Cube } from "@phosphor-icons/react";
 import type { ModelRowDTO } from "../lib/tauri";
-import { fmtCost, fmtPct, fmtTokens } from "../lib/format";
+import { fmtCost, fmtCostPrecise, fmtPct, fmtTokens } from "../lib/format";
 import { getClientVisual } from "../lib/client-color";
 import { cn } from "../lib/cn";
 
 /** Phosphor, amber, teal, rose, fog, slate. No purple or blue, by design. */
 const PALETTE = ["#35D99A", "#E8A33D", "#4CC9C0", "#E26D7E", "#C2C8D1", "#5F6570"];
 
-/** Bar opacities step down by rank, mirroring the Stitch reference. */
-const BAR_OPACITY = [1, 0.8, 0.6, 0.4, 0.25];
-
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
+
+/** Sub-cent spend must never collapse to a misleading "$0.00". */
+function fmtMoney(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "$0.00";
+  if (n < 0.005) return "<$0.01";
+  if (n < 1) return fmtCostPrecise(n);
+  return fmtCost(n);
+}
 
 type ViewMode = "auto" | "donut" | "bars";
 type Metric = "cost" | "tokens";
@@ -82,20 +87,217 @@ function Segmented<T extends string>({
   );
 }
 
-export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
+interface Slice {
+  id: string;
+  name: string;
+  full: string;
+  client: string;
+  tokens: number;
+  cost: number;
+  value: number;
+}
+
+function DonutPanel({
+  chartRef,
+  compact,
+  totalLabel,
+  effectiveMetric,
+  measured,
+  hole,
+  numSize,
+  capSize,
+  boxH,
+  slices,
+  total,
+}: {
+  chartRef: React.RefObject<HTMLDivElement>;
+  compact: boolean;
+  totalLabel: string;
+  effectiveMetric: Metric;
+  measured: boolean;
+  hole: number;
+  numSize: number;
+  capSize: number;
+  boxH: number;
+  slices: Slice[];
+  total: number;
+}) {
+  return (
+    <div className={compact ? "" : "mt-2"}>
+      <div className="relative">
+        <div
+          ref={chartRef}
+          className={compact ? "h-56 w-full" : "h-60 w-full"}
+          role="img"
+          aria-label="Model share ring chart"
+        />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div
+            className="flex flex-col items-center overflow-hidden text-center"
+            style={{
+              width: measured ? hole * 0.92 : undefined,
+              paddingBottom: measured ? boxH * 0.04 : 6,
+            }}
+          >
+            <div
+              className="tnum w-full truncate font-mono font-semibold leading-none text-[#1b1b1d]"
+              style={{ fontSize: numSize }}
+            >
+              {totalLabel}
+            </div>
+            <div
+              className="mt-1 w-full truncate font-sans text-[#626267]"
+              style={{ fontSize: capSize }}
+            >
+              total {effectiveMetric}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {compact ? (
+        <p className="mt-1 text-center font-mono text-[10px] text-ink-3">
+          top 5 + other
+        </p>
+      ) : (
+        <ul className="mt-2 divide-y divide-[#F0EDEF] px-1">
+          {slices.map((s, i) => {
+            const share = total > 0 ? s.value / total : 0;
+            const visual = s.client ? getClientVisual(s.client) : null;
+            return (
+              <li
+                key={`${s.client}:${s.id}`}
+                className="flex items-start gap-2 overflow-hidden py-1.5 text-[11px]"
+                title={s.full}
+              >
+                <span
+                  className="mt-[3px] h-2.5 w-1 shrink-0 rounded-full"
+                  style={{ background: PALETTE[i % PALETTE.length] }}
+                />
+                {visual ? (
+                  <span
+                    className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", visual.dot)}
+                    title={visual.label}
+                  />
+                ) : (
+                  <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
+                )}
+                {/* Middle-elided only when absurdly long; the tail ("-free") always survives. */}
+                <span className="min-w-0 flex-1 break-words font-sans text-[#414755]" title={s.full}>
+                  {elideMiddle(s.name, NAME_MAX)}
+                </span>
+                <span className="tnum min-w-[6ch] shrink-0 text-right font-mono text-ink-3">
+                  {fmtPct(share)}
+                </span>
+                <span className="tnum min-w-[7ch] shrink-0 text-right font-mono text-[#414755]">
+                  {fmtTokens(s.tokens)}
+                </span>
+                <span className="tnum min-w-[9ch] shrink-0 text-right font-mono font-semibold text-[#1b1b1d]">
+                  {fmtMoney(s.cost)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function RankedRows({
+  top10,
+  effectiveMetric,
+  total,
+  maxRowValue,
+  reduceMotion,
+}: {
+  top10: ModelRowDTO[];
+  effectiveMetric: Metric;
+  total: number;
+  maxRowValue: number;
+  reduceMotion: boolean;
+}) {
+  return (
+    <ol className="space-y-2.5 pt-2">
+      {top10.map((m, i) => {
+        const value = effectiveMetric === "cost" ? m.cost : m.tokens;
+        const pct = maxRowValue > 0 ? (value / maxRowValue) * 100 : 0;
+        const share = total > 0 ? value / total : 0;
+        const visual = getClientVisual(m.client);
+        const color = PALETTE[i % PALETTE.length];
+        return (
+          <motion.li
+            key={`${m.client}:${m.model}`}
+            title={`${m.model} (${m.client})`}
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.45, delay: reduceMotion ? 0 : i * 0.04, ease: EASE }}
+            className="space-y-1"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="tnum w-3 shrink-0 text-right font-mono text-[10px] text-ink-3">
+                {i + 1}
+              </span>
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: color }}
+                aria-hidden
+              />
+              <span
+                className="min-w-0 flex-1 break-words font-sans text-[12px] font-semibold text-[#1b1b1d]"
+                title={`${m.model} (${m.client})`}
+              >
+                {elideMiddle(m.model, NAME_MAX)}
+              </span>
+              <span className="hidden max-w-[7rem] shrink-0 truncate rounded bg-[#F6F3F5] px-1.5 py-0.5 font-sans text-[10px] text-[#626267] sm:inline">
+                {visual.label}
+              </span>
+              <span className="tnum w-[9ch] shrink-0 text-right font-mono text-[12px] font-bold text-[#1b1b1d]">
+                {effectiveMetric === "cost" ? fmtMoney(m.cost) : fmtTokens(m.tokens)}
+              </span>
+            </div>
+            <div className="ml-5 flex items-center gap-2">
+              <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-[#F0EDEF]">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+                  style={{ width: `${Math.max(pct, value > 0 ? 2 : 0)}%`, background: color }}
+                />
+              </div>
+              <span className="tnum w-[6ch] shrink-0 text-right font-mono text-[10px] text-ink-3">
+                {fmtPct(share)}
+              </span>
+              <span className="tnum hidden w-[9ch] shrink-0 text-right font-mono text-[10px] text-ink-3 sm:inline">
+                {effectiveMetric === "cost" ? `${fmtTokens(m.tokens)} tok` : fmtMoney(m.cost)}
+              </span>
+            </div>
+          </motion.li>
+        );
+      })}
+    </ol>
+  );
+}
+
+export default function ModelDonut({
+  models,
+  onViewDetailedMatrix,
+}: {
+  models: ModelRowDTO[];
+  onViewDetailedMatrix?: () => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   const [view, setView] = useState<ViewMode>("auto");
   const [metric, setMetric] = useState<Metric>("cost");
   /** Measured ring box — keeps the centre readout inside the donut hole. */
   const [box, setBox] = useState({ w: 0, h: 0 });
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotion() ?? false;
 
   const totalCost = useMemo(() => models.reduce((a, m) => a + m.cost, 0), [models]);
   // Free / $0 contributor models: never render a blank chart — share by tokens.
   const effectiveMetric: Metric = totalCost === 0 ? "tokens" : metric;
 
-  const { slices, total, otherShare, top10 } = useMemo(() => {
+  const { slices, total, top10 } = useMemo(() => {
     const valueOf = (m: ModelRowDTO) =>
       effectiveMetric === "cost" ? m.cost : m.tokens;
     const sorted = [...models].sort((a, b) => valueOf(b) - valueOf(a));
@@ -127,23 +329,20 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
         value: rest.reduce((a, m) => a + valueOf(m), 0),
       });
     }
-    const otherValue = rest.length > 0 ? out[out.length - 1].value : 0;
     return {
       slices: out,
       total: totalValue,
-      otherShare: totalValue > 0 ? otherValue / totalValue : 0,
       top10: sorted.slice(0, 10),
     };
   }, [models, effectiveMetric]);
 
-  // Auto: long tail dominates → the donut is unreadable, prefer ranked bars.
-  const resolvedView: "donut" | "bars" =
-    view === "auto" ? (otherShare > 0.3 ? "bars" : "donut") : view;
-  const donutActive = resolvedView === "donut";
+  // Auto is a deliberate composition: ring + full ranked list together.
+  const resolvedView: "split" | "donut" | "bars" = view === "auto" ? "split" : view;
+  const hasUsage = models.length > 0 && total > 0;
 
   useEffect(() => {
     const el = ref.current;
-    if (!donutActive || !el) {
+    if (resolvedView === "bars" || !el) {
       // Clean disposal when switching to the HTML bars view (or emptying).
       chartRef.current?.dispose();
       chartRef.current = null;
@@ -207,7 +406,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
                 </div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;padding:2px 0">
                   <span style="color:#626267;font-size:11px;font-family:sans-serif">Cost</span>
-                  <span style="color:#1b1b1d;font-size:12px;font-weight:600">${fmtCost(d.cost ?? 0)}</span>
+                  <span style="color:#1b1b1d;font-size:12px;font-weight:600">${esc(fmtMoney(d.cost ?? 0))}</span>
                 </div>
               </div>`;
           },
@@ -236,13 +435,14 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
       },
       { notMerge: true },
     );
-  }, [slices, donutActive, total, reduceMotion]);
+  }, [slices, resolvedView, total, reduceMotion]);
 
   // Container-driven resize so layout/sidebar changes reflow the ring, plus a
   // measured box so the centre readout scales to the hole instead of overlapping it.
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    // The observed node only exists when the ring is actually rendered.
+    if (!el || resolvedView === "bars" || !hasUsage) return;
     const measure = () => {
       chartRef.current?.resize();
       const r = el.getBoundingClientRect();
@@ -252,7 +452,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
     ro.observe(el);
     measure();
     return () => ro.disconnect();
-  }, [donutActive]);
+  }, [resolvedView, hasUsage]);
 
   useEffect(() => {
     return () => {
@@ -283,7 +483,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
     );
   }
 
-  const totalLabel = effectiveMetric === "cost" ? fmtCost(total) : fmtTokens(total);
+  const totalLabel = effectiveMetric === "cost" ? fmtMoney(total) : fmtTokens(total);
   // Inner hole of the ring (radius 62% of the smaller edge) drives the centre type size,
   // so the total can never spill under the arc on a narrow card.
   const measured = box.w > 0 && box.h > 0;
@@ -314,18 +514,25 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
               Top Models by Consumption
             </h3>
             <p className="mt-0.5 font-sans text-[12px] text-[#626267]">
-              Ranked by gross USD spend &amp; context throughput
+              Ranked by {effectiveMetric === "cost" ? "gross spend" : "token volume"}
             </p>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-0.5 font-sans text-[12px] font-medium text-[#0058bc]">
+          <button
+            type="button"
+            onClick={onViewDetailedMatrix}
+            disabled={!onViewDetailedMatrix}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 font-sans text-[12px] font-medium text-[#0058bc] transition-colors hover:bg-primary/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0058bc] disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
+          >
             View Detailed Matrix
             <ArrowRight size={14} aria-hidden />
-          </span>
+          </button>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
           <p className="tnum font-mono text-[10.5px] text-ink-3">
-            {resolvedView === "donut" ? "top 5 plus other" : `top 10 by ${effectiveMetric}`}
-            {view === "auto" && <span> (auto)</span>}
+            {resolvedView === "donut"
+              ? `top 5 + other by ${effectiveMetric}`
+              : `top 10 by ${effectiveMetric}`}
+            {view === "auto" && <span> · ring + rows</span>}
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
             <Segmented<ViewMode>
@@ -350,129 +557,57 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
           </div>
         </div>
 
-        {resolvedView === "donut" ? (
+        {resolvedView === "bars" ? (
           <>
-            <div className="relative mt-2">
-              <div ref={ref} className="h-52 w-full" role="img" aria-label="Model share ring chart" />
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div
-                  className="flex flex-col items-center overflow-hidden text-center"
-                  style={{
-                    width: measured ? hole * 0.92 : undefined,
-                    paddingBottom: measured ? box.h * 0.04 : 6,
-                  }}
-                >
-                  <div
-                    className="tnum w-full truncate font-mono font-semibold leading-none text-[#1b1b1d]"
-                    style={{ fontSize: numSize }}
-                  >
-                    {totalLabel}
-                  </div>
-                  <div
-                    className="mt-1 w-full truncate font-sans text-[#626267]"
-                    style={{ fontSize: capSize }}
-                  >
-                    total {effectiveMetric}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <ul className="mt-2 divide-y divide-[#F0EDEF] px-1">
-              {slices.map((s, i) => {
-                const share = total > 0 ? s.value / total : 0;
-                const visual = s.client ? getClientVisual(s.client) : null;
-                return (
-                  <li
-                    key={`${s.client}:${s.id}`}
-                    className="flex items-start gap-2 overflow-hidden py-1.5 text-[11px]"
-                    title={s.full}
-                  >
-                    <span
-                      className="mt-[3px] h-2.5 w-1 shrink-0 rounded-full"
-                      style={{ background: PALETTE[i % PALETTE.length] }}
-                    />
-                    {visual ? (
-                      <span
-                        className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", visual.dot)}
-                        title={visual.label}
-                      />
-                    ) : (
-                      <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
-                    )}
-                    {/* Full model id: wraps instead of truncating, so "-free" stays visible. */}
-                    <span
-                      className="min-w-0 flex-1 break-words font-sans text-[#414755]"
-                      title={s.full}
-                    >
-                      {elideMiddle(s.name, NAME_MAX)}
-                    </span>
-                    <span className="tnum min-w-[6ch] shrink-0 text-right font-mono text-ink-3">
-                      {fmtPct(share)}
-                    </span>
-                    <span className="tnum min-w-[7ch] shrink-0 text-right font-mono text-[#414755]">
-                      {fmtTokens(s.tokens)}
-                    </span>
-                    <span className="tnum min-w-[9ch] shrink-0 text-right font-mono font-semibold text-[#1b1b1d]">
-                      {fmtCost(s.cost)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <RankedRows
+              top10={top10}
+              effectiveMetric={effectiveMetric}
+              total={total}
+              maxRowValue={maxRowValue}
+              reduceMotion={reduceMotion}
+            />
           </>
+        ) : resolvedView === "donut" ? (
+          <DonutPanel
+            chartRef={ref}
+            compact={false}
+            totalLabel={totalLabel}
+            effectiveMetric={effectiveMetric}
+            measured={measured}
+            hole={hole}
+            numSize={numSize}
+            capSize={capSize}
+            boxH={box.h}
+            slices={slices}
+            total={total}
+          />
         ) : (
-          <ul className="space-y-3.5 pt-4">
-            {top10.map((m, i) => {
-              const value = effectiveMetric === "cost" ? m.cost : m.tokens;
-              const pct = maxRowValue > 0 ? (value / maxRowValue) * 100 : 0;
-              const opacity = BAR_OPACITY[Math.min(i, BAR_OPACITY.length - 1)];
-              const visual = getClientVisual(m.client);
-              return (
-                <motion.li
-                  key={`${m.client}:${m.model}`}
-                  title={`${m.model} (${m.client})`}
-                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.45, delay: reduceMotion ? 0 : i * 0.05, ease: EASE }}
-                  className="space-y-1"
-                >
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 font-sans text-[13px]">
-                    <div className="flex min-w-0 items-start gap-2">
-                      <span
-                        className="mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ background: PALETTE[i % PALETTE.length] }}
-                      />
-                      {/* Full model id: wraps instead of truncating, so "-free" stays visible. */}
-                      <span
-                        className="min-w-0 flex-auto break-words font-semibold text-[#1b1b1d]"
-                        title={`${m.model} (${m.client})`}
-                      >
-                        {elideMiddle(m.model, NAME_MAX)}
-                      </span>
-                      <span className="mt-px min-w-0 max-w-[8rem] shrink-0 truncate rounded bg-[#F6F3F5] px-1.5 py-0.5 font-sans text-[10px] text-[#626267]">
-                        {visual.label}
-                      </span>
-                    </div>
-                    <div className="tnum flex shrink-0 items-baseline justify-end gap-2 whitespace-nowrap">
-                      <span className="font-bold text-[#1b1b1d]">{fmtCost(m.cost)}</span>
-                      <span className="text-[11px] text-ink-3">({fmtTokens(m.tokens)} tok)</span>
-                    </div>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-[#F0EDEF]">
-                    <motion.div
-                      initial={reduceMotion ? false : { scaleX: 0 }}
-                      whileInView={{ scaleX: 1 }}
-                      viewport={{ once: true }}
-                      transition={{ duration: 0.7, delay: reduceMotion ? 0 : i * 0.05, ease: EASE }}
-                      className="h-full origin-left rounded-full bg-[#0070eb]"
-                      style={{ width: `${Math.max(pct, 2)}%`, opacity }}
-                    />
-                  </div>
-                </motion.li>
-              );
-            })}
-          </ul>
+          <div className="mt-3 grid min-w-0 gap-4 lg:grid-cols-[minmax(220px,0.72fr)_minmax(0,1.65fr)]">
+            <div className="min-w-0">
+              <DonutPanel
+                chartRef={ref}
+                compact
+                totalLabel={totalLabel}
+                effectiveMetric={effectiveMetric}
+                measured={measured}
+                hole={hole}
+                numSize={numSize}
+                capSize={capSize}
+                boxH={box.h}
+                slices={slices}
+                total={total}
+              />
+            </div>
+            <div className="min-w-0 border-t border-[#F0EDEF] pt-3 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+              <RankedRows
+                top10={top10}
+                effectiveMetric={effectiveMetric}
+                total={total}
+                maxRowValue={maxRowValue}
+                reduceMotion={reduceMotion}
+              />
+            </div>
+          </div>
         )}
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[#F0EDEF] pt-4 font-sans text-[11px] text-ink-3">

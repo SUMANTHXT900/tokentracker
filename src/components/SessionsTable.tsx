@@ -47,8 +47,30 @@ function fmtRelative(ms: number): string {
   }
 }
 
-function shortId(id: string): string {
-  return id.length > 18 ? `${id.slice(0, 16)}…` : id;
+/**
+ * Compact session token for dense rows: `#287c07…`, built from the first six
+ * characters after an optional `ses_` prefix. The full ID stays in titles and
+ * copy actions.
+ */
+function shortSessionId(id: string): string {
+  const raw = id.trim();
+  if (!raw) return "—";
+  const body = raw.startsWith("ses_") ? raw.slice(4) : raw;
+  const visible = body.slice(0, 6);
+  return `#${visible}${body.length > 6 ? "…" : ""}`;
+}
+
+/**
+ * Workspace badge text. Friendly labels stay as-is; raw paths (from either the
+ * label or the key) collapse to their last folder name. Falls back to whichever
+ * value is present.
+ */
+function displayWorkspace(label?: string | null, key?: string | null): string {
+  const source = label?.trim() || key?.trim() || "";
+  if (!source) return "";
+  if (!/[\\/]/.test(source)) return source;
+  const segments = source.split(/[\\/]+/).filter((s) => s.length > 0);
+  return segments.length > 0 ? segments[segments.length - 1] : source;
 }
 
 /** Display-only recency rail color for the row's age. No effect on filtering or sort. */
@@ -656,8 +678,9 @@ export default function SessionsTable({
                 const expanded = selected === key;
                 const detailId = `${key}-detail`;
                 const extraModels = r.models && r.models.length > 1 ? r.models.length - 1 : 0;
+                const workspaceName = displayWorkspace(r.workspace_label, r.workspace_key);
                 const showWorkspace =
-                  !!r.workspace_label && r.workspace_label !== "(unknown)";
+                  !!workspaceName && workspaceName !== "(unknown)";
                 const isFree = r.cost === 0 && r.tokens > 0;
                 const copyTag = `id:${key}`;
                 const copiedNow = copied === copyTag;
@@ -724,16 +747,16 @@ export default function SessionsTable({
                               )}
                               title={title ?? r.session_id}
                             >
-                              {title ?? shortId(r.session_id)}
+                              {title ?? shortSessionId(r.session_id)}
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               {showWorkspace && (
                                 <span
                                   className="inline-flex max-w-40 items-center gap-1 truncate rounded bg-slate-100 px-1.5 py-px text-[10px] text-slate-500"
-                                  title={r.workspace_key ?? r.workspace_label ?? undefined}
+                                  title={r.workspace_key || r.workspace_label || undefined}
                                 >
                                   <FolderOpen size={11} className="shrink-0 text-ink-3" />
-                                  <span className="truncate">{r.workspace_label}</span>
+                                  <span className="truncate">{workspaceName}</span>
                                 </span>
                               )}
                               {!!r.agent && (
@@ -745,9 +768,7 @@ export default function SessionsTable({
                                 </span>
                               )}
                               <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] text-ink-3">
-                                {r.session_id.length > 12
-                                  ? `${r.session_id.slice(0, 12)}…`
-                                  : r.session_id}
+                                <span title={r.session_id}>{shortSessionId(r.session_id)}</span>
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -1126,12 +1147,14 @@ function TokenBreakdown({ row: r }: { row: SessionRowDTO }) {
   const input = r.input ?? 0;
   const output = r.output ?? 0;
   const cacheRead = r.cache_read ?? 0;
+  const cacheWrite = r.cache_write ?? 0;
   const reasoning = r.reasoning ?? 0;
-  const total = r.tokens > 0 ? r.tokens : input + output + cacheRead + reasoning;
+  const total = r.tokens > 0 ? r.tokens : input + output + cacheRead + cacheWrite + reasoning;
   const segs = [
     { label: "Input", value: input, cls: "bg-blue-500" },
     { label: "Output", value: output, cls: "bg-sky-400" },
     { label: "Cache read", value: cacheRead, cls: "bg-amber-400" },
+    { label: "Cache write", value: cacheWrite, cls: "bg-orange-300" },
     { label: "Reasoning", value: reasoning, cls: "bg-slate-300" },
   ].filter((s) => s.value > 0);
   const cacheHit =
@@ -1145,6 +1168,7 @@ function TokenBreakdown({ row: r }: { row: SessionRowDTO }) {
     { label: "Input", value: input },
     { label: "Output", value: output },
     { label: "Cache read", value: cacheRead },
+    { label: "Cache write", value: cacheWrite },
     { label: "Reasoning", value: reasoning },
     { label: "Total", value: total },
   ];

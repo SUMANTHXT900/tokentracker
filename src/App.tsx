@@ -3,7 +3,6 @@ import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
   ArrowsClockwise,
   ArrowsDownUp,
-  Calendar,
   CalendarBlank,
   CaretDown,
   CaretRight,
@@ -51,6 +50,9 @@ import DailyChart from "./components/DailyChart";
 import ModelDonut from "./components/ModelDonut";
 import Heatmap from "./components/Heatmap";
 import SessionsTable from "./components/SessionsTable";
+import DateRangePicker from "./components/DateRangePicker";
+import ClientFilterDropdown from "./components/ClientFilterDropdown";
+import type { ClientStat } from "./components/ClientFilterDropdown";
 import TripSetupModal from "./components/TripSetupModal";
 import TripView from "./components/TripView";
 import SessionShareModal from "./components/SessionShareModal";
@@ -122,17 +124,21 @@ const PAGE_META: Record<Page, { title: string; desc: string }> = {
   },
 };
 
-const DATE_PRESETS: { label: string; days: number }[] = [
-  { label: "All time", days: 0 },
-  { label: "7D", days: 7 },
-  { label: "30D", days: 30 },
-  { label: "90D", days: 90 },
-];
-
 /** Local-timezone YYYY-MM-DD (backend date keys are local days). */
 function ymd(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Resolve a preset day count to its local [since, until] window. `-1` = year to date. */
+function presetRange(days: number): { since: string; until: string } {
+  const end = new Date();
+  const start =
+    days === -1
+      ? new Date(end.getFullYear(), 0, 1)
+      : new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  if (days !== -1) start.setDate(start.getDate() - (days - 1));
+  return { since: ymd(start), until: ymd(end) };
 }
 
 /** "3h ago" / "2d ago" / absolute date when old. */
@@ -188,11 +194,6 @@ const STOP_REASON_CLS: Record<string, string> = {
   idle: "whitespace-nowrap border-blue-200 bg-blue-50 text-[#0058bc]",
   "idle-timeout": "whitespace-nowrap border-blue-200 bg-blue-50 text-[#0058bc]",
 };
-
-interface ClientStat {
-  tokens: number;
-  sessions: number;
-}
 
 /** First-load overlay: branded animation until the first real snapshot lands.
  *  Refetches keep old data (placeholderData) so this shows exactly once. */
@@ -265,6 +266,11 @@ export default function App() {
   } = useStore();
   const filters = { clients, since, until };
   const { data: snap, refetch, isFetching, isPending } = useSnapshot(filters);
+  // Client-scope stats must describe the current date range even while a filter
+  // hides other clients, so this second query is deliberately unfiltered. When
+  // no client is selected it shares the main query key and costs nothing.
+  const statsFilters = useMemo(() => ({ clients: [] as string[], since, until }), [since, until]);
+  const { data: statsSnap, isPlaceholderData: statsPlaceholder } = useSnapshot(statsFilters);
   const { data: live } = useLiveStatus();
   const {
     data: tripsData,
@@ -293,6 +299,22 @@ export default function App() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [presetDays, setPresetDays] = useState<number | null>(null);
+  // Re-render at local midnight so "Today"/"Last 7 days" never describe
+  // yesterday's window after the app has been left open overnight.
+  const [dayTick, setDayTick] = useState(0);
+  useEffect(() => {
+    let timer = 0;
+    const schedule = () => {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      timer = window.setTimeout(() => {
+        setDayTick((t) => t + 1);
+        schedule();
+      }, Math.max(1_000, next.getTime() - now.getTime() + 1_000));
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, []);
   const updater = useUpdater();
   // Release-notes popup "Download now": land on Settings → App updates so the
   // user sees the progress UI first, then start the download there.
@@ -305,6 +327,23 @@ export default function App() {
     }, 650);
   }, [updater.closeNotes, updater.startDownload, setPage]);
   const queryClient = useQueryClient();
+
+  /** Top Models → Models page, then land on the telemetry matrix. */
+  const openModelsMatrix = useCallback(() => {
+    const reveal = () =>
+      document
+        .getElementById("model-telemetry")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Already on Models: no page transition, so anchor immediately.
+    if (page === "models") {
+      reveal();
+      return;
+    }
+    setPage("models");
+    // `AnimatePresence mode="wait"` holds the outgoing page for 320ms before
+    // Models mounts; wait past that exit, then anchor the matrix.
+    window.setTimeout(reveal, 420);
+  }, [page, setPage]);
 
   // One-second clock only while a session runs: resume card / banner elapsed.
   const [clockNow, setClockNow] = useState(() => Date.now());
@@ -340,47 +379,54 @@ export default function App() {
     if (!sidebarCollapsed) setRailHover(false);
   }, [sidebarCollapsed]);
 
-  // Stable client ribbon: backend returns only filtered clients in snap.clients,
-  // so accumulate the union while filtered — selecting one client must not
-  // hide the rest. On unfiltered snapshots the backend returns the full set,
-  // so adopt it directly (evicts renamed/removed clients).
-  // Ordering follows snap.clients recency (active first), never alphabetical:
-  // current backend order leads, historical clients trail.
+  // Stable client scope: the unfiltered stats snapshot carries every client,
+  // even while the table is scoped to one. Accumulate the union so selecting a
+  // client never hides the rest; adopt directly when nothing is filtered.
   const [seenClients, setSeenClients] = useState<string[]>([]);
   useEffect(() => {
-    if (!snap) return;
+    const source = statsSnap ?? snap;
+    if (!source) return;
     setSeenClients((prev) => {
-      if (clients.length === 0) return [...snap.clients];
+      if (clients.length === 0) return [...source.clients];
       const ordered: string[] = [];
-      for (const c of snap.clients) if (!ordered.includes(c)) ordered.push(c);
+      for (const c of source.clients) if (!ordered.includes(c)) ordered.push(c);
       for (const c of prev) if (!ordered.includes(c)) ordered.push(c);
       return ordered;
     });
-  }, [snap, clients]);
-  const knownClients = seenClients.length > 0 ? seenClients : (snap?.clients ?? []);
+  }, [statsSnap, snap, clients]);
+  const knownClients = seenClients.length > 0 ? seenClients : (statsSnap?.clients ?? snap?.clients ?? []);
 
-  // Per-client stats for ribbon badges. Stable while filtered so pills keep
-  // their numbers after a client is selected; refreshed on unfiltered snaps,
-  // and seeded from the first snap even if the app loads already filtered.
-  const [clientStats, setClientStats] = useState<Record<string, ClientStat>>({});
-  const unfiltered = clients.length === 0;
-  const hasStats = Object.keys(clientStats).length > 0;
+  // Per-client stats for the dropdown. Keyed by the selected range so a range
+  // change can never show yesterday's spend under today's filter.
+  const statsKey = `${since ?? ""}|${until ?? ""}`;
+  const [statsState, setStatsState] = useState<{
+    key: string;
+    map: Record<string, ClientStat>;
+  }>({ key: "", map: {} });
   useEffect(() => {
-    if (!snap) return;
-    if (!unfiltered && hasStats) return;
+    if (!statsSnap || statsPlaceholder) return;
     const m: Record<string, ClientStat> = {};
     const stat = (c: string): ClientStat => {
-      if (!m[c]) m[c] = { tokens: 0, sessions: 0 };
+      if (!m[c]) m[c] = { tokens: 0, sessions: 0, cost: 0 };
       return m[c];
     };
-    for (const s of snap.sessions) stat(s.client).sessions += 1;
-    if (snap.models.length > 0) {
-      for (const mo of snap.models) stat(mo.client).tokens += mo.tokens;
+    for (const s of statsSnap.sessions) stat(s.client).sessions += 1;
+    // Counts always come from sessions; tokens/cost come from model rows when
+    // available (session rows are the fallback), never from both.
+    if (statsSnap.models.length > 0) {
+      for (const mo of statsSnap.models) {
+        stat(mo.client).tokens += mo.tokens;
+        stat(mo.client).cost += mo.cost;
+      }
     } else {
-      for (const s of snap.sessions) stat(s.client).tokens += s.tokens;
+      for (const s of statsSnap.sessions) {
+        stat(s.client).tokens += s.tokens;
+        stat(s.client).cost += s.cost;
+      }
     }
-    setClientStats(m);
-  }, [snap, unfiltered, hasStats]);
+    setStatsState({ key: statsKey, map: m });
+  }, [statsSnap, statsPlaceholder, statsKey]);
+  const clientStats = statsState.key === statsKey ? statsState.map : {};
 
   // Live watcher: Tauri emits usage://updated on fs change → refetch snapshot
   // (placeholderData keeps old UI, no flash). Browser dev: no-op.
@@ -502,14 +548,14 @@ export default function App() {
   };
 
   const applyPreset = (days: number) => {
-    setPresetDays(days === 0 ? null : days);
     if (days === 0) {
+      setPresetDays(null);
       setRange(null, null);
       return;
     }
-    const end = new Date();
-    const start = new Date(end.getTime() - (days - 1) * 86_400_000);
-    setRange(ymd(start), ymd(end));
+    const next = presetRange(days);
+    setPresetDays(days);
+    setRange(next.since, next.until);
   };
 
   const clearRange = () => {
@@ -517,15 +563,14 @@ export default function App() {
     setRange(null, null);
   };
 
-  // A preset pill is honest only while the live range still equals the window
-  // it produced. Other surfaces (Heatmap day scope) call setRange directly,
-  // so reconcile here instead of trusting local state.
+  // A preset is honest only while the live range still equals the window it
+  // produced. Other surfaces (Heatmap day scope) call setRange directly, so
+  // reconcile here instead of trusting local state.
   useEffect(() => {
     if (presetDays === null) return;
-    const end = new Date();
-    const start = new Date(end.getTime() - (presetDays - 1) * 86_400_000);
-    if (ymd(start) !== since || ymd(end) !== until) setPresetDays(null);
-  }, [since, until, presetDays]);
+    const expected = presetRange(presetDays);
+    if (expected.since !== since || expected.until !== until) setPresetDays(null);
+  }, [since, until, presetDays, dayTick]);
 
   // Overview bug fix: sessions arrive cost-sorted from the backend — recency-sort
   // a copy so the "Recent Sessions" panel actually shows recent work.
@@ -814,128 +859,37 @@ export default function App() {
       <main id="main-content" className="relative min-w-0 flex-1">
         <AnimatePresence>{loading && <BootOverlay />}</AnimatePresence>
         <div className="mx-auto min-w-0 w-full max-w-[1600px] space-y-5 px-4 py-6 sm:px-6">
-          {/* Top instrument readout: page title + date range island */}
-          <header className="rounded-[1.75rem] border border-hairline bg-card p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
-          <div className="rounded-[1.25rem] border border-hairline/70 bg-card px-5 py-4">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div className="min-w-0">
-                <p className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-tray px-2.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-ink-3">
-                  Local telemetry
-                </p>
-                <h2 className="font-display mt-2 text-[22px] font-semibold tracking-tight text-ink">
-                  {meta.title}
-                </h2>
-                <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-ink-2">{meta.desc}</p>
-              </div>
-              <div className="flex max-w-full flex-wrap items-center gap-0.5 rounded-2xl border border-hairline bg-tray p-1 lg:rounded-full" role="group" aria-label="Date range">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-card" aria-hidden="true">
-                <Calendar size={14} className="text-ink-3" />
-                </span>
-                {DATE_PRESETS.map((p) => {
-                  const on = p.days === 0 ? presetDays === null && !since && !until : presetDays === p.days;
-                  return (
-                    <button
-                      key={p.label}
-                      onClick={() => applyPreset(p.days)}
-                      aria-pressed={on}
-                      className={cn(
-                        "whitespace-nowrap rounded-full border px-3 py-1.5 font-mono text-[11px] transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97] motion-reduce:transition-none",
-                        on
-                          ? "border-primary/20 bg-primary/[0.08] text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
-                          : "border-transparent text-ink-2 hover:bg-card hover:text-ink",
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  );
-                })}
-                {(since || until) && (
-                  <span className="tnum ml-1 inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-primary/25 bg-primary/[0.08] px-2.5 py-1 font-mono text-[11px] text-primary">
-                    {since ?? "…"} → {until ?? "…"}
-                    <button
-                      onClick={clearRange}
-                      title="Clear date range"
-                      aria-label="Clear date range"
-                      className="rounded-full p-0.5 text-primary/70 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-primary/10 hover:text-primary motion-reduce:transition-none"
-                    >
-                      <X size={11} weight="bold" aria-hidden="true" />
-                    </button>
-                  </span>
-                )}
-              </div>
+          {/* Compact instrument header: title + client scope + time range */}
+          <header className="flex min-h-12 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-baseline gap-2.5">
+              <h2 className="font-display shrink-0 text-[22px] font-bold leading-none tracking-[-0.02em] text-ink">
+                {meta.title}
+              </h2>
+              <span className="hidden h-3.5 w-px shrink-0 bg-hairline md:block" aria-hidden />
+              <p className="hidden min-w-0 truncate text-[12px] text-ink-3 md:block" title={meta.desc}>
+                {meta.desc}
+              </p>
             </div>
-          </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <ClientFilterDropdown
+                clients={clients}
+                knownClients={knownClients}
+                stats={clientStats}
+                onChange={setClients}
+              />
+              <DateRangePicker
+                since={since}
+                until={until}
+                presetDays={presetDays}
+                onPreset={applyPreset}
+                onCustom={(a, b) => {
+                  setPresetDays(null);
+                  setRange(a, b);
+                }}
+                onClear={clearRange}
+              />
+            </div>
           </header>
-
-          {/* Client filter ribbon — light instrument tray */}
-          <div className="rounded-2xl border border-hairline bg-card p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
-          <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-[0.8rem] border border-hairline/70 bg-tray px-2 py-1.5" role="group" aria-label="Filter by client">
-            <span className="mr-1 inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap font-mono text-[9px] uppercase tracking-[0.2em] text-ink-3">
-              <Funnel size={11} aria-hidden="true" /> Clients
-            </span>
-            <button
-              onClick={() => setClients([])}
-              aria-pressed={clients.length === 0}
-              className={cn(
-                "whitespace-nowrap rounded-full border px-3 py-1 text-xs transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97] motion-reduce:transition-none",
-                clients.length === 0
-                  ? "border-primary/20 bg-primary/[0.08] font-medium text-primary"
-                  : "border-transparent text-ink-2 hover:bg-card hover:text-ink",
-              )}
-            >
-              All clients
-            </button>
-            {knownClients.map((c) => {
-              const on = clients.includes(c);
-              const visual = getClientVisual(c);
-              const stat = clientStats[c];
-              const badge =
-                stat && stat.tokens > 0
-                  ? fmtTokens(stat.tokens)
-                  : stat && stat.sessions > 0
-                    ? `${stat.sessions}×`
-                    : null;
-              return (
-                <button
-                  key={c}
-                  onClick={() =>
-                    setClients(on ? clients.filter((x) => x !== c) : [...clients, c])
-                  }
-                  title={stat ? `${stat.sessions} sessions, ${fmtTokens(stat.tokens)} tokens` : c}
-                  aria-pressed={on}
-                  style={on ? { borderColor: `${visual.hex}66`, backgroundColor: `${visual.hex}14` } : undefined}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97] motion-reduce:transition-none",
-                    on
-                      ? "font-medium text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
-                      : "border-transparent text-ink-2 hover:bg-card hover:text-ink",
-                  )}
-                >
-                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", visual.dot)} />
-                  <span className="font-medium">{visual.label}</span>
-                  {badge && (
-                    <span
-                      className={cn(
-                        "tnum rounded-full px-1.5 py-0.5 font-mono text-[9px]",
-                        on ? "bg-black/[0.07] text-ink-2" : "bg-tray-deep text-ink-3",
-                      )}
-                    >
-                      {badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-            {clients.length > 0 && (
-              <button
-                onClick={() => setClients([])}
-                className="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-ink-2 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-ink motion-reduce:transition-none"
-              >
-                <X size={11} /> Clear filter
-              </button>
-            )}
-          </div>
-          </div>
 
           {/* Compact live spotlight — never a full TripView on other pages */}
           {runningTrip && page !== "trips" && (
@@ -999,14 +953,11 @@ export default function App() {
               {page === "overview" && (
                 <>
                   <KpiCards snap={snap} isFetching={isFetching} />
-                  <div className="grid gap-4 lg:grid-cols-5">
-                    <div className="lg:col-span-3">
-                      <DailyChart days={snap?.daily ?? []} loading={loading} />
-                    </div>
-                    <div className="lg:col-span-2">
-                      <ModelDonut models={snap?.models ?? []} />
-                    </div>
-                  </div>
+                  <DailyChart days={snap?.daily ?? []} loading={loading} />
+                  <ModelDonut
+                    models={snap?.models ?? []}
+                    onViewDetailedMatrix={openModelsMatrix}
+                  />
                   <Heatmap days={snap?.daily ?? []} />
                   <div className="rounded-2xl border border-[#e5e5ea] bg-white shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#f2f2f7] px-4 py-3">
@@ -1033,8 +984,13 @@ export default function App() {
 
               {page === "models" && (
                 <div className="min-w-0 space-y-4">
-                  <ModelDonut models={snap?.models ?? []} />
-                  <ModelTelemetryTable models={snap?.models ?? []} loading={loading} />
+                  <ModelDonut
+                    models={snap?.models ?? []}
+                    onViewDetailedMatrix={openModelsMatrix}
+                  />
+                  <div id="model-telemetry" className="scroll-mt-4 min-w-0">
+                    <ModelTelemetryTable models={snap?.models ?? []} loading={loading} />
+                  </div>
                 </div>
               )}
 
@@ -1892,7 +1848,7 @@ function ProjectsView({
 
 /* ───────────────────────── Model telemetry table ────────────────────────── */
 
-type ModelSort = "model" | "client" | "input" | "output" | "cache_read" | "reasoning" | "tokens" | "cost";
+type ModelSort = "model" | "client" | "input" | "output" | "cache_read" | "cache_write" | "reasoning" | "tokens" | "cost";
 
 function ModelTelemetryTable({
   models,
@@ -1928,6 +1884,8 @@ function ModelTelemetryTable({
           return dir * (a.output - b.output);
         case "cache_read":
           return dir * (a.cache_read - b.cache_read);
+        case "cache_write":
+          return dir * (a.cache_write - b.cache_write);
         case "reasoning":
           return dir * (a.reasoning - b.reasoning);
         case "cost":
@@ -1991,7 +1949,8 @@ function ModelTelemetryTable({
     );
   };
 
-  const totalModelTokens = models.reduce((a, m) => a + m.tokens, 0) || 1;
+  const totalModelTokens = models.reduce((a, m) => a + m.tokens, 0);
+  const shareBase = totalModelTokens || 1;
 
   return (
     <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
@@ -2068,7 +2027,7 @@ function ModelTelemetryTable({
           <p className="sr-only" role="status" aria-live="polite">
             {rows.length} models shown, sorted by {sort.key} {sort.dir === "asc" ? "ascending" : "descending"}
           </p>
-          <table className="w-full min-w-[720px] table-auto border-collapse text-left text-sm">
+          <table className="w-full min-w-[820px] table-auto border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-outline-variant/30 bg-surface-container-low text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
               <th scope="col" className="w-8 px-2 py-2.5 pl-4 font-mono font-medium text-outline">
@@ -2081,6 +2040,7 @@ function ModelTelemetryTable({
               <Th label="Input" k="input" />
               <Th label="Output" k="output" />
               <Th label="Cache read" k="cache_read" />
+              <Th label="Cache write" k="cache_write" />
               <Th label="Reasoning" k="reasoning" />
               <Th label="Total tokens" k="tokens" />
               <Th label="Total cost" k="cost" />
@@ -2090,7 +2050,7 @@ function ModelTelemetryTable({
             {rows.map((m, i) => {
               const v = getClientVisual(m.client);
               const hit = m.cache_read / Math.max(1, m.cache_read + m.input);
-              const share = Math.max(0, Math.min(1, m.tokens / totalModelTokens));
+              const share = Math.max(0, Math.min(1, m.tokens / shareBase));
               return (
                 <tr key={`${m.client}-${m.model}-${m.provider}-${i}`} className="group transition-colors hover:bg-surface-container-low/70 motion-reduce:transition-none">
                   <td className="whitespace-nowrap px-2 py-2.5 pl-4 font-mono text-[11px] text-outline transition-colors group-hover:text-on-surface-variant motion-reduce:transition-none">
@@ -2151,6 +2111,9 @@ function ModelTelemetryTable({
                         {fmtPct(hit)}
                       </span>
                     </div>
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
+                    {fmtTokens(m.cache_write)}
                   </td>
                   <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
                     {fmtTokens(m.reasoning)}

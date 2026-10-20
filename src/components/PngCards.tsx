@@ -66,6 +66,26 @@ import { buildCardData, dayLabel, packClients, prettyModel } from "../lib/card/d
 import type { CardData, ClientStat, ModelStat } from "../lib/card/data";
 
 /* ------------------------------------------------------------------ */
+/* Card finish — self-contained, capture-safe                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Film grain for the card surface. The texture is an inline SVG turbulence
+ * data URI, so `html-to-image` never has to fetch an external asset.
+ */
+const GRAIN_URI = `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><filter id="tt-grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="160" height="160" filter="url(#tt-grain)"/></svg>`,
+)}`;
+
+/** Specular hairline per theme. Inset only — never adds layout size. */
+const CARD_INNER_EDGE: Record<ThemeId, string> = {
+  obsidian: "inset 0 1px 0 rgba(255,255,255,0.09), inset 0 0 0 1px rgba(255,255,255,0.055)",
+  editorial: "inset 0 1px 0 rgba(255,255,255,0.7), inset 0 0 0 1px rgba(17,17,17,0.10)",
+  aurora: "inset 0 1px 0 rgba(255,255,255,0.12), inset 0 0 0 1px rgba(255,255,255,0.07)",
+  monolith: "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 0 1px rgba(229,193,88,0.14)",
+};
+
+/* ------------------------------------------------------------------ */
 /* Card building blocks                                                */
 /* ------------------------------------------------------------------ */
 
@@ -98,6 +118,7 @@ function CardHeader({
   handle: string;
   platform: string;
 }) {
+  const metaFont = Math.max(6.5, layout.labelFont - 1);
   return (
     <div
       style={{
@@ -124,12 +145,14 @@ function CardHeader({
               fontWeight: 800,
               fontSize: Math.round(layout.brandMark * 0.56),
               lineHeight: 1,
+              letterSpacing: "-0.02em",
               flexShrink: 0,
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18)",
             }}
           >
             T
           </span>
-          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flexShrink: 0 }}>
             <span
               style={{
                 fontFamily: FONT_SANS,
@@ -143,8 +166,8 @@ function CardHeader({
             >
               TOKENTRACKER
             </span>
-            <Label theme={theme} size={Math.max(6.5, layout.labelFont - 1)}>
-              AI usage telemetry
+            <Label theme={theme} size={metaFont}>
+              Local telemetry
             </Label>
           </span>
           {handle ? (
@@ -161,7 +184,7 @@ function CardHeader({
                 lineHeight: 1.1,
                 letterSpacing: "0.04em",
                 whiteSpace: "nowrap",
-                maxWidth: (layout.twoCol ? 120 : 190),
+                maxWidth: layout.twoCol ? 120 : 190,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 flexShrink: 1,
@@ -172,9 +195,40 @@ function CardHeader({
           ) : null}
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
-          <span style={numCss(layout.dateFont, theme.dim, 500)}>{data.rangeLabel}</span>
-          <Label theme={theme} size={Math.max(6.5, layout.labelFont - 1)}>
-            {layout.twoCol ? platform : `${data.activeDays} active days`}
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "0 6px",
+              borderRadius: 999,
+              border: `1px solid ${theme.line}`,
+              background: theme.panel,
+              color: theme.dim,
+              fontFamily: FONT_MONO,
+              fontSize: layout.dateFont,
+              fontWeight: 500,
+              lineHeight: 1.15,
+              letterSpacing: "0.02em",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 3,
+                height: 3,
+                borderRadius: 999,
+                background: theme.accent,
+                flexShrink: 0,
+              }}
+            />
+            {data.rangeLabel}
+          </span>
+          <Label theme={theme} size={metaFont}>
+            {layout.twoCol
+              ? platform
+              : `${data.activeDays} active ${data.activeDays === 1 ? "day" : "days"}`}
           </Label>
         </div>
       </div>
@@ -335,10 +389,10 @@ function SparkBlock({
         }}
       >
         <Label theme={theme} size={layout.labelFont} color={theme.dim}>
-          Activity rhythm
+          Daily throughput
         </Label>
         <Label theme={theme} size={Math.max(6.5, layout.labelFont - 0.5)}>
-          {`${data.windowDays}d · ${data.activeDays} active`}
+          {`${data.windowDays}d ${theme.separator} ${data.activeDays} active`}
         </Label>
       </div>
       {hasSeries ? (
@@ -526,8 +580,8 @@ function SparkBlock({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            borderTop: `1px dashed ${theme.line}`,
-            borderBottom: `1px dashed ${theme.line}`,
+            ...panelCss(theme, Math.max(6, theme.radius - 10)),
+            boxSizing: "border-box",
           }}
         >
           <Label theme={theme} size={layout.labelFont}>
@@ -705,10 +759,10 @@ function ModelRows({
         }}
       >
         <Label theme={theme} size={layout.labelFont} color={theme.dim}>
-          {data.metric === "tokens" ? "Model dominance" : "Spend by model"}
+          Top models
         </Label>
         <Label theme={theme} size={Math.max(6.5, layout.labelFont - 0.5)}>
-          {`top ${rows.length} of ${data.models.length}`}
+          {`${data.metric === "spend" ? "by spend" : "by tokens"} ${theme.separator} top ${rows.length} of ${data.models.length}`}
         </Label>
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
@@ -761,15 +815,13 @@ function ModelRows({
               <span
                 style={{
                   fontFamily: FONT_MONO,
-                  fontSize: Math.max(6.5, layout.clientFont - 0.5),
-                  letterSpacing: "0.08em",
+                  fontSize: Math.max(6.5, layout.clientFont - 0.7),
+                  letterSpacing: "0.1em",
                   textTransform: "uppercase",
                   color: theme.dim,
-                  border: `1px solid ${theme.panelBorder}`,
-                  borderRadius: 999,
-                  padding: `1px ${Math.round(layout.clientFont * 0.5)}px`,
                   flexShrink: 0,
                   lineHeight: 1.2,
+                  whiteSpace: "nowrap",
                 }}
               >
                 {m.clientLabel}
@@ -913,7 +965,7 @@ function CardFooter({
   );
 
   // Adaptive footer: reserve the streak badge + signature, then fit the ticker
-  // or the spec stamp into whatever is actually left over.
+  // or the local-telemetry stamp into whatever is actually left over.
   const streakLabel = `${data.streak}D STREAK`;
   const sigLabel = "tokentracker";
   const streakW = estimateTextW(streakLabel, layout.footerFont, 0.08) + layout.footerFont * 2.6 + 5;
@@ -924,8 +976,8 @@ function CardFooter({
   const centerW = Math.max(40, width - streakW - rightW - 16);
 
   const showStamp = theme.chrome === "brutalist";
-  const stampFull = "TOKENTRACKER // TELEMETRY SPEC";
-  const stampShort = "TELEMETRY SPEC";
+  const stampFull = "LOCAL TELEMETRY";
+  const stampShort = "LOCAL ONLY";
   const stampFullW = estimateTextW(stampFull, layout.stampFont, theme.labelSpacing);
   const stampShortW = estimateTextW(stampShort, layout.stampFont, theme.labelSpacing);
 
@@ -1127,7 +1179,7 @@ function Chrome({
         aria-hidden
         focusable="false"
       >
-        <g stroke="rgba(15,15,14,0.075)" strokeWidth={1}>
+        <g stroke="rgba(17,17,17,0.075)" strokeWidth={1}>
           {verts.map((x, i) => (
             <line key={`v${i}`} x1={x} y1={p * 0.5} x2={x} y2={h - p * 0.5} />
           ))}
@@ -1135,7 +1187,7 @@ function Chrome({
             <line key={`h${i}`} x1={p * 0.45} y1={y} x2={w - p * 0.45} y2={y} />
           ))}
         </g>
-        <g stroke="rgba(15,15,14,0.55)" strokeWidth={1} strokeLinecap="butt">
+        <g stroke="rgba(17,17,17,0.55)" strokeWidth={1} strokeLinecap="butt">
           {[
             [off, off],
             [w - off, off],
@@ -1206,12 +1258,11 @@ function Chrome({
           key={i}
           style={{
             position: "absolute",
-            left: x - 3,
-            top: y - 3,
-            width: 6,
-            height: 6,
+            left: x - 2,
+            top: y - 2,
+            width: 4,
+            height: 4,
             background: frame.tick,
-            transform: "rotate(45deg)",
           }}
         />
       ))}
@@ -1229,10 +1280,22 @@ function EmptyState({ theme, layout }: { theme: CardTheme; layout: CardLayout })
         alignItems: "center",
         justifyContent: "center",
         gap: 6,
-        border: `1px dashed ${theme.lineStrong}`,
-        borderRadius: Math.max(6, theme.radius - 8),
+        ...panelCss(theme, Math.max(6, theme.radius - 8)),
+        boxSizing: "border-box",
+        padding: 12,
+        textAlign: "center",
       }}
     >
+      <span
+        aria-hidden
+        style={{
+          width: 20,
+          height: Math.max(1, theme.ruleH),
+          background: theme.accent,
+          opacity: 0.8,
+          marginBottom: 1,
+        }}
+      />
       <Label theme={theme} size={layout.labelFont} color={theme.dim}>
         no activity in this range
       </Label>
@@ -1509,6 +1572,7 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
     boxSizing: "border-box",
     fontVariantNumeric: "tabular-nums",
     WebkitFontSmoothing: "antialiased",
+    boxShadow: CARD_INNER_EDGE[theme.id],
   };
 
   const content: ReactNode = data.hasData ? (
@@ -1973,10 +2037,25 @@ export default function PngCards({ snap }: { snap?: UsageSnapshotDTO }) {
                   style={cardStyle}
                 >
                   <Chrome theme={theme} layout={layout} w={aspect.w} h={aspect.h} seed={data.seed} />
+                  {/* Grain sits above the theme chrome, below the content layer. */}
+                  <div
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      zIndex: 1,
+                      pointerEvents: "none",
+                      backgroundImage: `url("${GRAIN_URI}")`,
+                      backgroundSize: "160px 160px",
+                      backgroundRepeat: "repeat",
+                      opacity: 0.032,
+                      borderRadius: "inherit",
+                    }}
+                  />
                   <div
                     style={{
                       position: "relative",
-                      zIndex: 1,
+                      zIndex: 2,
                       flex: 1,
                       minHeight: 0,
                       display: "flex",

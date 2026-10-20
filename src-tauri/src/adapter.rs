@@ -55,6 +55,8 @@ pub struct DailyDTO {
     pub input: i64,
     pub output: i64,
     pub cache_read: i64,
+    pub cache_write: i64,
+    pub reasoning: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -86,6 +88,7 @@ pub struct SessionRowDTO {
     pub input: i64,
     pub output: i64,
     pub cache_read: i64,
+    pub cache_write: i64,
     pub reasoning: i64,
     pub cost: f64,
     pub messages: i32,
@@ -354,6 +357,8 @@ struct DayAcc {
     input: i64,
     output: i64,
     cache_read: i64,
+    cache_write: i64,
+    reasoning: i64,
 }
 
 struct ModelAcc {
@@ -474,6 +479,8 @@ fn build_snapshot_from_rows(
                 input: 0,
                 output: 0,
                 cache_read: 0,
+                cache_write: 0,
+                reasoning: 0,
             });
             d.tokens = d.tokens.saturating_add(tokens);
             d.cost += msg_cost;
@@ -481,6 +488,8 @@ fn build_snapshot_from_rows(
             d.input = d.input.saturating_add(r.input);
             d.output = d.output.saturating_add(r.output);
             d.cache_read = d.cache_read.saturating_add(r.cache_read);
+            d.cache_write = d.cache_write.saturating_add(r.cache_write);
+            d.reasoning = d.reasoning.saturating_add(r.reasoning);
         }
 
         // Session entry (matches tokscale TUI `if !is_recovery_floor && !msg.session_id.is_empty()`)
@@ -642,6 +651,8 @@ fn build_snapshot_from_rows(
             input: d.input,
             output: d.output,
             cache_read: d.cache_read,
+            cache_write: d.cache_write,
+            reasoning: d.reasoning,
         })
         .collect();
 
@@ -675,6 +686,7 @@ fn build_snapshot_from_rows(
                 input: s.input,
                 output: s.output,
                 cache_read: s.cache_read,
+                cache_write: s.cache_write,
                 reasoning: s.reasoning,
                 cost: s.cost,
                 messages: s.messages,

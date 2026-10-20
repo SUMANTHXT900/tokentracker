@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from "motion/react";
 import * as echarts from "echarts";
 import { ChartLine } from "@phosphor-icons/react";
 import type { DailyDTO } from "../lib/tauri";
-import { fmtCompact, fmtCost, fmtTokens } from "../lib/format";
+import { fmtCost, fmtCostPrecise, fmtTokens } from "../lib/format";
 import { cn } from "../lib/cn";
 
 type Metric = "tokens" | "cost" | "messages";
@@ -35,13 +35,15 @@ const METRIC_ORDER: Metric[] = ["tokens", "cost", "messages"];
 
 /** Token breakdown series (Tokens mode only). Colors follow an Okabe-Ito-style
  *  colorblind-safe set; Total keeps the existing blue. No purple. */
-type TokenSeriesKey = "total" | "input" | "cache" | "output";
+type TokenSeriesKey = "total" | "input" | "cache" | "cache_write" | "output" | "reasoning";
 
 const TOKEN_SERIES: { key: TokenSeriesKey; label: string; color: string }[] = [
   { key: "total", label: "Total", color: "#0070eb" },
   { key: "input", label: "Input", color: "#009E73" },
   { key: "cache", label: "Cache read", color: "#E69F00" },
+  { key: "cache_write", label: "Cache write", color: "#CC79A7" },
   { key: "output", label: "Output", color: "#D55E00" },
+  { key: "reasoning", label: "Reasoning", color: "#56B4E9" },
 ];
 
 /**
@@ -51,10 +53,11 @@ const TOKEN_SERIES: { key: TokenSeriesKey; label: string; color: string }[] = [
  */
 function tokenSeriesValue(d: DailyDTO, key: TokenSeriesKey): number {
   if (key === "total") return toFinite(d.tokens);
-  const b = d as DailyDTO & Partial<Record<"input" | "output" | "cache_read", number>>;
-  if (key === "input") return Math.max(0, toFinite(b.input));
-  if (key === "cache") return Math.max(0, toFinite(b.cache_read));
-  return Math.max(0, toFinite(b.output));
+  if (key === "input") return Math.max(0, toFinite(d.input));
+  if (key === "cache") return Math.max(0, toFinite(d.cache_read));
+  if (key === "cache_write") return Math.max(0, toFinite(d.cache_write));
+  if (key === "reasoning") return Math.max(0, toFinite(d.reasoning));
+  return Math.max(0, toFinite(d.output));
 }
 
 /** "2026-10-18" → "Oct 18" (parsed naively to dodge timezone drift). */
@@ -77,8 +80,58 @@ function metricValue(d: DailyDTO, metric: Metric): number {
   return toFinite(v);
 }
 
+/** Card-level money: normal two-decimal currency, but keep sub-cent spend
+ *  visible instead of rounding real activity down to $0.00. */
+function fmtSpend(v: number): string {
+  return Math.abs(v) >= 0.01 ? fmtCost(v) : fmtCostPrecise(v);
+}
+
 function fmtMetric(v: number, metric: Metric): string {
-  return metric === "cost" ? fmtCost(v) : fmtTokens(v);
+  return metric === "cost" ? fmtSpend(v) : fmtTokens(v);
+}
+
+/** Trim trailing zeroes without collapsing meaningful decimals. */
+function trimNum(n: number, decimals: number): string {
+  return n.toFixed(decimals).replace(/\.0+$/, "").replace(/(\.\d*[1-9])0+$/, "$1");
+}
+
+/** Y-axis ticks: 800M / 1.5B / 250K, never 800.0M. */
+function fmtTokenAxis(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return "0";
+  if (v >= 1e9) return `${trimNum(v / 1e9, v >= 1e11 ? 0 : 2)}B`;
+  if (v >= 1e6) return `${trimNum(v / 1e6, v >= 1e8 ? 0 : 1)}M`;
+  if (v >= 1e3) return `${trimNum(v / 1e3, v >= 1e5 ? 0 : 1)}K`;
+  return `${Math.round(v)}`;
+}
+
+/** One precision per cost axis keeps neighboring ticks consistent and stops
+ *  cent-scale ticks collapsing: whole dollars at scale, cents for dollar
+ *  ranges, extra precision below $0.10 for sub-cent values. */
+function costAxisDecimals(scale: number): number {
+  if (!Number.isFinite(scale) || scale <= 0) return 2;
+  if (scale >= 20) return 0;
+  if (scale >= 0.1) return 2;
+  if (scale >= 0.001) return 4;
+  return 6;
+}
+
+/** Currency ticks: $25 / $2.50 — consistent precision across the axis, and
+ *  every label (including $0) keeps the dollar sign. */
+function fmtCostAxis(v: number, decimals: number): string {
+  if (!Number.isFinite(v)) return "$0";
+  if (v === 0) return "$0";
+  return `$${decimals > 2 ? trimNum(v, decimals) : v.toFixed(decimals)}`;
+}
+
+/** Message ticks: half-thousands stay 1.5K instead of rounding into duplicates. */
+function fmtCountAxis(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return "0";
+  if (v >= 1e6) return `${trimNum(v / 1e6, 1)}M`;
+  if (v >= 1e3) {
+    const k = v / 1e3;
+    return `${Number.isInteger(k) ? k : trimNum(k, k * 10 === Math.round(k * 10) ? 1 : 2)}K`;
+  }
+  return `${Math.round(v)}`;
 }
 
 /** rAF count-up from the previously displayed value (never flashes from 0
@@ -119,7 +172,7 @@ function ChartSkeleton() {
   return (
     <div aria-hidden className="rounded-2xl border border-[#E4E1E8] bg-white p-5">
       <div className="h-4 w-32 animate-pulse rounded bg-zinc-100" />
-      <div className="mt-3 h-64 w-full animate-pulse rounded-xl bg-zinc-100" />
+      <div className="mt-3 h-[360px] w-full animate-pulse rounded-xl bg-zinc-100" />
     </div>
   );
 }
@@ -179,8 +232,10 @@ export default function DailyChart({
 
     const sorted = [...safeDays].sort((a, b) => (a.date < b.date ? -1 : 1));
     const values = sorted.map((d) => metricValue(d, metric));
-    const total = values.reduce((a, v) => a + v, 0);
-    const avg = values.length > 0 ? total / values.length : 0;
+    const costScale = values.reduce((max, v) => Math.max(max, Math.abs(v)), 0);
+    const costDecimals = costAxisDecimals(costScale);
+    // One day would draw a zero-width line with symbols hidden; force the dot.
+    const onePoint = sorted.length === 1;
 
     // Multi-series model (Tokens mode): visible = toggled ON and carrying data.
     // Falls back to Total so the chart never renders an empty series list.
@@ -197,14 +252,13 @@ export default function DailyChart({
       : [];
 
     const lineSeries: echarts.LineSeriesOption[] = isTokens
-      ? shown.map((s, i) => {
+      ? shown.map((s) => {
           const vals = sorted.map((d) => tokenSeriesValue(d, s.key));
-          const seriesAvg = vals.length > 0 ? vals.reduce((a, v) => a + v, 0) / vals.length : 0;
           return {
             name: s.label,
             type: "line",
             smooth: 0.3,
-            showSymbol: false,
+            showSymbol: onePoint,
             clip: true,
             lineStyle: { width: s.key === "total" ? 2.5 : 2, color: s.color },
             ...(s.key === "total"
@@ -219,20 +273,6 @@ export default function DailyChart({
               : {}),
             emphasis: { focus: "series" },
             data: vals,
-            // Avg reference keeps the dashed line but drops the in-chart label
-            // (the stats strip already shows avg): with no label there is no
-            // overlap or grid-edge clipping, even when avg sits near data max.
-            ...(i === 0
-              ? {
-                  markLine: {
-                    silent: true,
-                    symbol: "none",
-                    data: [{ yAxis: seriesAvg }],
-                    lineStyle: { color: "#C9C4D6", type: "dashed", width: 1 },
-                    label: { show: false },
-                  },
-                }
-              : {}),
           };
         })
       : [
@@ -240,7 +280,7 @@ export default function DailyChart({
             name: style.label,
             type: "line",
             smooth: 0.3,
-            showSymbol: false,
+            showSymbol: onePoint,
             clip: true,
             lineStyle: { width: 2.5, color: style.color },
             areaStyle: {
@@ -251,13 +291,6 @@ export default function DailyChart({
             },
             emphasis: { focus: "series" },
             data: values,
-            markLine: {
-              silent: true,
-              symbol: "none",
-              data: [{ yAxis: avg }],
-              lineStyle: { color: "#C9C4D6", type: "dashed", width: 1 },
-              label: { show: false },
-            },
           },
         ];
 
@@ -301,7 +334,7 @@ export default function DailyChart({
                   )
                 : [
                     ["Tokens", fmtTokens(day.tokens), "#0070eb"],
-                    ["Spend", fmtCost(day.cost), "#D97706"],
+                    ["Spend", fmtSpend(day.cost), "#D97706"],
                     ["Messages", `${toFinite(day.messages).toLocaleString()}`, "#717786"],
                   ];
             return `
@@ -322,9 +355,12 @@ export default function DailyChart({
               </div>`;
           },
         },
-        grid: { left: 12, right: 16, top: 36, bottom: 8, containLabel: true },
+        // Fixed left gutter: currency labels need real room, and containLabel
+        // alone still clipped them at the card edge in the old 3/5 layout.
+        grid: { left: 62, right: 24, top: 30, bottom: 26 },
         xAxis: {
           type: "category",
+          boundaryGap: false,
           data: sorted.map((d) => fmtDayLabel(d.date)),
           axisLine: { lineStyle: { color: "#E4E1E8" } },
           axisTick: { show: false },
@@ -340,15 +376,22 @@ export default function DailyChart({
         yAxis: {
           type: "value",
           splitNumber: 4,
+          // Counts must not land on fractional ticks (0.5 messages would round
+          // into duplicate labels); callback formatters can't dedupe.
+          minInterval: metric === "cost" ? 0 : 1,
           splitLine: { lineStyle: { color: "#EFEDF1", type: "dashed" } },
           axisLabel: {
             color: "#717786",
             fontSize: 10,
             fontFamily: "'JetBrains Mono', monospace",
             hideOverlap: true,
-            margin: 8,
+            margin: 10,
             formatter: (v: number) =>
-              metric === "cost" ? `$${fmtCompact(v)}` : fmtCompact(v),
+              metric === "cost"
+                ? fmtCostAxis(v, costDecimals)
+                : metric === "messages"
+                  ? fmtCountAxis(v)
+                  : fmtTokenAxis(v),
           },
         },
         series: lineSeries,
@@ -436,7 +479,9 @@ export default function DailyChart({
     total: true,
     input: safeDays.some((d) => tokenSeriesValue(d, "input") > 0),
     cache: safeDays.some((d) => tokenSeriesValue(d, "cache") > 0),
+    cache_write: safeDays.some((d) => tokenSeriesValue(d, "cache_write") > 0),
     output: safeDays.some((d) => tokenSeriesValue(d, "output") > 0),
+    reasoning: safeDays.some((d) => tokenSeriesValue(d, "reasoning") > 0),
   };
 
   return (
@@ -514,6 +559,7 @@ export default function DailyChart({
               return (
                 <button
                   key={m}
+                  type="button"
                   aria-pressed={active}
                   onClick={() => setMetric(m)}
                   className={cn(
@@ -552,7 +598,7 @@ export default function DailyChart({
               <span className="text-[#414755]">{fmtDayLabel(peak.date)}</span>{" "}
               <span className="font-semibold text-[#1b1b1d]">
                 {metric === "cost"
-                  ? fmtCost(peak.cost)
+                  ? fmtSpend(peak.cost)
                   : metric === "tokens"
                     ? fmtTokens(peak.tokens)
                     : toFinite(peak.messages).toLocaleString()}
@@ -562,7 +608,7 @@ export default function DailyChart({
         )}
       </div>
 
-      <div ref={ref} className="mt-2 h-72 w-full" role="img" aria-label={`Daily ${style.label.toLowerCase()} chart`} />
+      <div ref={ref} className="mt-3 h-[360px] w-full" role="img" aria-label={`Daily ${style.label.toLowerCase()} chart`} />
     </motion.section>
   );
 }

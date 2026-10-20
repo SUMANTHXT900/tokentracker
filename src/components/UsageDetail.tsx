@@ -67,8 +67,6 @@ const PLATE_INNER =
 
 type PeriodId = "today" | "week" | "month";
 
-const DAY_MS = 86_400_000;
-
 const PERIODS: { id: PeriodId; label: string; days: number; compare: string }[] = [
   { id: "today", label: "Today", days: 1, compare: "yesterday" },
   { id: "week", label: "Week", days: 7, compare: "the prior 7 days" },
@@ -104,9 +102,12 @@ interface PeriodRange {
 function rangeFor(period: PeriodId, now = new Date()): PeriodRange {
   const { days } = periodSpec(period);
   const end = dayStart(now);
-  const start = new Date(end.getTime() - (days - 1) * DAY_MS);
-  const prevEnd = new Date(start.getTime() - DAY_MS);
-  const prevStart = new Date(prevEnd.getTime() - (days - 1) * DAY_MS);
+  const start = new Date(end);
+  start.setDate(start.getDate() - (days - 1));
+  const prevEnd = new Date(start);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - (days - 1));
   return {
     since: ymd(start),
     until: ymd(end),
@@ -656,7 +657,7 @@ function ClientSplit({
                 <p className="tnum mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-ink-3">
                   <span>{fmtPct(share)} of tokens</span>
                   <span>{r.sessions.toLocaleString()} session{r.sessions === 1 ? "" : "s"}</span>
-                  <span>{fmtCostPrecise(r.cost)}</span>
+                  <span>{r.cost <= 0 && r.tokens > 0 ? "Free" : fmtCostPrecise(r.cost)}</span>
                 </p>
               </li>
             );
@@ -671,8 +672,9 @@ function ClientSplit({
 
 type SessionSortKey = "tokens" | "cost" | "messages";
 
-function shortId(id: string): string {
-  return id.length > 20 ? `${id.slice(0, 18)}…` : id;
+function shortSessionId(id: string): string {
+  const body = id.replace(/^ses_/, "");
+  return `#${body.slice(0, 6)}${body.length > 6 ? "…" : ""}`;
 }
 
 function TopSessions({
@@ -873,7 +875,7 @@ function TopSessions({
                               )}
                               title={title ?? s.session_id}
                             >
-                              {title ?? shortId(s.session_id)}
+                              {title ?? shortSessionId(s.session_id)}
                             </span>
                             <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
                               <span
@@ -936,13 +938,18 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
 
   const snap = current.data;
   const prev = previous.data;
-  const loading = current.isPending && !snap;
+  // placeholderData keeps the previous period on screen; never label that as
+  // the new period's numbers (or compare it against a still-loading previous).
+  const loading = !snap || current.isPlaceholderData;
+  const previousReady = !!prev && !previous.isPlaceholderData && !previous.isError;
+  const comparisonLoading = loading || !previousReady;
 
   const tokens = snap?.total_tokens ?? 0;
   const cost = snap?.total_cost ?? 0;
   const messages = snap?.total_messages ?? 0;
   const modelsCount = snap?.models.length ?? 0;
-  const sessionsCount = snap?.sessions.length ?? 0;
+  const sessions = snap?.sessions ?? [];
+  const sessionsCount = sessions.length;
 
   const aTokens = useCountUp(tokens);
   const aCost = useCountUp(cost);
@@ -959,19 +966,25 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
     [snap],
   );
 
-  const avgTokens = sessionsCount > 0 ? tokens / sessionsCount : 0;
-  const avgMessages = sessionsCount > 0 ? messages / sessionsCount : 0;
+  // Averages must use the session population, not the global totals: backend
+  // totals include recovery-floor rows that are deliberately absent from
+  // `sessions`, so dividing total tokens by session count inflates the average.
+  const sessionTokens = sessions.reduce((a, s) => a + s.tokens, 0);
+  const sessionCost = sessions.reduce((a, s) => a + (s.cost ?? 0), 0);
+  const sessionMessages = sessions.reduce((a, s) => a + (s.messages ?? 0), 0);
+  const avgTokens = sessionsCount > 0 ? sessionTokens / sessionsCount : 0;
+  const avgCost = sessionsCount > 0 ? sessionCost / sessionsCount : 0;
+  const avgMessages = sessionsCount > 0 ? sessionMessages / sessionsCount : 0;
 
-  // Period stream split — same cache-hit definition as KpiCards (Overview):
-  // cache_read / (cache_read + plain input), summed over snap.models.
-  // ModelRowDTO already carries input/output/cache_read, so no backend change.
+  // Period stream split — five additive buckets. Cache read and write are
+  // displayed separately; "In" is plain input so the buckets sum to the total.
   const periodModels = snap?.models ?? [];
   const periodCacheRead = periodModels.reduce((a, m) => a + (m?.cache_read ?? 0), 0);
-  const periodPlainInput = periodModels.reduce((a, m) => a + (m?.input ?? 0), 0);
-  const periodIn = periodCacheRead + periodPlainInput;
+  const periodCacheWrite = periodModels.reduce((a, m) => a + (m?.cache_write ?? 0), 0);
+  const periodIn = periodModels.reduce((a, m) => a + (m?.input ?? 0), 0);
   const periodOut = periodModels.reduce((a, m) => a + (m?.output ?? 0), 0);
   const periodReasoning = periodModels.reduce((a, m) => a + (m?.reasoning ?? 0), 0);
-  const periodCacheDenom = periodCacheRead + periodPlainInput;
+  const periodCacheDenom = periodCacheRead + periodIn;
   const periodCacheHit = periodCacheDenom > 0 ? periodCacheRead / periodCacheDenom : 0;
 
   const deltas: { label: string; delta: Delta }[] = [
@@ -983,6 +996,10 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
   ];
 
   const tok = splitTokens(aTokens);
+  const freePeriod = cost <= 0 && tokens > 0;
+  const costValue =
+    freePeriod ? "Free" : cost > 0 && cost < 0.01 ? fmtCostPrecise(aCost) : fmtCost(aCost);
+  const costUnit = freePeriod ? "" : "USD";
   const syncing = (current.isFetching || previous.isFetching) && !loading;
 
   return (
@@ -1090,9 +1107,9 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
                 {
                   label: "Cost",
                   icon: <CurrencyDollar size={13} weight="bold" />,
-                  value: fmtCost(aCost),
-                  unit: "USD",
-                  sub: sessionsCount > 0 ? `${fmtCost(cost / sessionsCount)} avg / session` : "no sessions",
+                  value: costValue,
+                  unit: costUnit,
+                  sub: sessionsCount > 0 ? `${fmtCost(avgCost)} avg / session` : "no sessions",
                 },
                 {
                   label: "Messages",
@@ -1106,7 +1123,7 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
                   icon: <Cube size={13} weight="bold" />,
                   value: Math.round(aModels).toLocaleString(),
                   unit: "active",
-                  sub: topModel ? `top ${topModel.model}` : "none recorded",
+                  sub: topModel ? `top ${topModel.model} · by tokens` : "none recorded",
                 },
                 {
                   label: "Sessions",
@@ -1143,10 +1160,10 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
           <div className="tnum mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-ink-3">
             <span>In: {fmtTokens(periodIn)}</span>
             <span>Out: {fmtTokens(periodOut)}</span>
-            <span>
-              {fmtTokens(periodCacheRead)} cached · {fmtPct(periodCacheHit)} hit
-            </span>
-            <span>· Reasoning: {fmtTokens(periodReasoning)}</span>
+            <span>Cache read: {fmtTokens(periodCacheRead)}</span>
+            <span>Cache write: {fmtTokens(periodCacheWrite)}</span>
+            <span>{fmtPct(periodCacheHit)} hit</span>
+            <span>Reasoning: {fmtTokens(periodReasoning)}</span>
           </div>
         )}
 
@@ -1155,8 +1172,8 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-3">
             vs {spec.compare}
           </span>
-          {loading ? (
-            <div className="skeleton h-4 w-64 rounded" aria-hidden="true" />
+          {comparisonLoading ? (
+            <div className="skeleton h-4 w-64 rounded" aria-hidden="true" aria-label="Loading comparison" />
           ) : (
             deltas.map((d) => (
               <span key={d.label} className="inline-flex items-baseline gap-1.5 text-[11px]">
