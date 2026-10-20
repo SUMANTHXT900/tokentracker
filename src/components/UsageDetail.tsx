@@ -962,6 +962,17 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
   const avgTokens = sessionsCount > 0 ? tokens / sessionsCount : 0;
   const avgMessages = sessionsCount > 0 ? messages / sessionsCount : 0;
 
+  // Period stream split — same cache-hit definition as KpiCards (Overview):
+  // cache_read / (cache_read + plain input), summed over snap.models.
+  // ModelRowDTO already carries input/output/cache_read, so no backend change.
+  const periodModels = snap?.models ?? [];
+  const periodCacheRead = periodModels.reduce((a, m) => a + (m?.cache_read ?? 0), 0);
+  const periodPlainInput = periodModels.reduce((a, m) => a + (m?.input ?? 0), 0);
+  const periodIn = periodCacheRead + periodPlainInput;
+  const periodOut = periodModels.reduce((a, m) => a + (m?.output ?? 0), 0);
+  const periodCacheDenom = periodCacheRead + periodPlainInput;
+  const periodCacheHit = periodCacheDenom > 0 ? periodCacheRead / periodCacheDenom : 0;
+
   const deltas: { label: string; delta: Delta }[] = [
     { label: "tokens", delta: computeDelta(tokens, prev?.total_tokens ?? 0) },
     { label: "cost", delta: computeDelta(cost, prev?.total_cost ?? 0) },
@@ -1125,6 +1136,17 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
             </div>
           )}
         </div>
+
+        {/* Stream split for the selected period — Input / Output / Cached. */}
+        {!loading && (
+          <div className="tnum mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-ink-3">
+            <span>In: {fmtTokens(periodIn)}</span>
+            <span>Out: {fmtTokens(periodOut)}</span>
+            <span>
+              {fmtTokens(periodCacheRead)} cached · {fmtPct(periodCacheHit)} hit
+            </span>
+          </div>
+        )}
 
         {/* Comparison rail — vs the equal-length window immediately before. */}
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-hairline px-4 py-3 sm:px-5">

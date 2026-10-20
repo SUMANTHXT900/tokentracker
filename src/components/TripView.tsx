@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  Brain,
   ChatCenteredText,
   CheckCircle,
   Coins,
@@ -13,6 +14,7 @@ import {
   Lightning,
   ShareNetwork,
   ShieldCheck,
+  Stack,
   StopCircle,
   Timer,
   TrendUp,
@@ -397,6 +399,20 @@ export default function TripView({
   const hasInputOutput =
     (isFiniteNumber(inputTokens) && inputTokens > 0) ||
     (isFiniteNumber(outputTokens) && outputTokens > 0);
+  // The backend total is the sum of every stream
+  // (input + output + cache_read + cache_write + reasoning — see
+  // `build_trip_detail`), so the hero has to account for all of them or the
+  // headline number and the pills visibly disagree.
+  const cacheReadTokens = d?.cache_read;
+  const cacheWriteTokens = d?.cache_write;
+  const cacheTokens = Math.max(
+    0,
+    safeNumber(cacheReadTokens) + safeNumber(cacheWriteTokens),
+  );
+  const hasCache = cacheTokens > 0;
+  const reasoningTokens = d?.reasoning;
+  const hasReasoning = isFiniteNumber(reasoningTokens) && reasoningTokens > 0;
+  const hasStreamBreakdown = hasInputOutput || hasCache || hasReasoning;
   const sessions = safeNumber(detail.sessions);
 
   const startedMs = parseTimestamp(trip.started_at);
@@ -688,17 +704,24 @@ export default function TripView({
                     <AnimatedNumber value={tokens} format={(n) => splitTokens(n).num} />
                   </span>
                   <span
-                    className="shrink-0 font-mono text-lg font-medium text-[#414755]"
+                    className="shrink-0 font-mono text-xl font-medium text-[#414755]"
                     title={`${fullNum(tokens)} tokens consumed this session`}
                   >
                     {tokenSplit.unit ? `${tokenSplit.unit} tok` : "tok"}
                   </span>
                 </div>
-                {/* Odometer split — this session's input vs output tokens, read
-                    straight off the session-scoped deltas. Hidden when the
-                    backend reports neither, and never rendered as NaN. */}
-                {hasInputOutput && (
-                  <div className="flex flex-wrap items-center gap-2">
+                {/* Stream split — this session's input, output, cache and
+                    reasoning tokens, read straight off the session-scoped
+                    deltas. Together they account for the headline total
+                    (input + output + cache_read + cache_write + reasoning).
+                    Hidden when the backend reports no stream at all, and
+                    never rendered as NaN. */}
+                {hasStreamBreakdown && (
+                  <div
+                    className="flex flex-wrap items-center gap-2"
+                    role="group"
+                    aria-label="Token stream breakdown"
+                  >
                     <span
                       className="inline-flex items-center gap-1.5 rounded-lg border border-[#0070eb]/25 bg-[#0070eb]/[0.06] px-2.5 py-1 font-mono text-xs text-[#0058bc]"
                       title={`${fullNum(safeNumber(inputTokens))} input tokens this session`}
@@ -729,13 +752,41 @@ export default function TripView({
                         {fmtTokens(safeNumber(outputTokens))}
                       </strong>
                     </span>
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#E69F00]/30 bg-[#E69F00]/[0.10] px-2.5 py-1 font-mono text-xs text-[#8A5A00]"
+                      title={`${fullNum(safeNumber(cacheReadTokens))} cache read + ${fullNum(safeNumber(cacheWriteTokens))} cache write tokens this session`}
+                    >
+                      <Stack
+                        size={14}
+                        weight="light"
+                        className="text-[#E69F00]"
+                        aria-hidden="true"
+                      />
+                      CACHE
+                      <strong className="tnum font-semibold text-[#6B4600]">
+                        {fmtTokens(cacheTokens)}
+                      </strong>
+                    </span>
+                    {hasReasoning && (
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1 font-mono text-xs text-[#475569]"
+                        title={`${fullNum(safeNumber(reasoningTokens))} reasoning tokens this session`}
+                      >
+                        <Brain
+                          size={14}
+                          weight="light"
+                          className="text-slate-500"
+                          aria-hidden="true"
+                        />
+                        REASONING
+                        <strong className="tnum font-semibold text-[#334155]">
+                          {fmtTokens(safeNumber(reasoningTokens))}
+                        </strong>
+                      </span>
+                    )}
                   </div>
                 )}
-                <p className="text-xs text-ink-3">
-                  <span className="font-medium text-[#414755]">Odometer</span> · counts
-                  from zero for this session
-                </p>
-                <div className="flex flex-wrap items-center gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2 pt-2">
                   <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e5ea] bg-white px-2.5 py-1 font-mono text-xs text-[#414755]">
                     <Coins size={14} weight="light" className="text-ink-3" aria-hidden="true" />
                     Session spend:&nbsp;

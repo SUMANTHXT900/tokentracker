@@ -264,7 +264,7 @@ export default function KpiCards({
           </div>
           <div className="tnum flex items-center justify-between rounded-md bg-[#F6F3F5] px-2 py-1 font-mono text-[11px]">
             <span className="font-sans text-[#414755]">Cache Hit Rate</span>
-            <span className="font-semibold text-[#006b27]">{fmtPct(cacheHit)} cached</span>
+            <span className="font-semibold text-[#006b27]">{fmtTokens(cacheRead)} cached · {fmtPct(cacheHit)} hit</span>
           </div>
           <p className="tnum font-mono text-[10px] text-ink-3">{msgLabel} messages</p>
         </Card>
