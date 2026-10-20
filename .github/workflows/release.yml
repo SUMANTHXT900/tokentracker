@@ -104,6 +104,12 @@ jobs:
           const sig = fs.readFileSync(exe + ".sig", "utf8").trim();
           if (!sig) { console.error("FAIL: empty signature for " + exe); process.exit(1); }
           const exeName = path.basename(exe);
+          // Stable evergreen filename: lets the README download button point
+          // at .../releases/latest/download/<stable> without a per-release
+          // edit. The versioned exe stays the signed artifact of record.
+          const stableName = "tokentracker-setup-x64.exe";
+          fs.copyFileSync(exe, stableName);
+          console.log("stable copy -> " + stableName);
           const latest = {
             version: tag,
             notes: "tokentracker " + tag,
@@ -123,7 +129,7 @@ jobs:
           } catch {
             sh("gh release create " + tag + " --title \"tokentracker " + tag + "\" --notes \"tokentracker " + tag + "\" --repo " + repo);
           }
-          const want = ["latest.json", exe, exe + ".sig"];
+          const want = ["latest.json", exe, exe + ".sig", stableName];
           for (const f of all) {
             if ((f.endsWith("-setup.exe") || f.endsWith(".msi")) && !want.includes(f)) want.push(f);
             if (f.endsWith(".sig") && !want.includes(f)) want.push(f);

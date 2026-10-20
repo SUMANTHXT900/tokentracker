@@ -6,6 +6,8 @@
 
 Local-first desktop telemetry for AI coding-agent spend. No accounts. No cloud. No telemetry. Your logs never leave your machine.
 
+[![Download](https://img.shields.io/badge/Download-Windows_Installer-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/SUMANTHXT900/tokentracker/releases/latest/download/tokentracker-setup-x64.exe)
+<br />
 ![Windows](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square&logo=windows&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square&logo=tauri&logoColor=black)
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
@@ -19,19 +21,13 @@ Local-first desktop telemetry for AI coding-agent spend. No accounts. No cloud. 
 
 ## Download
 
-<a href="https://github.com/SUMANTHXT900/tokentracker/releases/latest">
-  <img src="https://img.shields.io/badge/Download-Windows_Installer-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download TokenTracker for Windows" />
-</a>
-
 **Windows 10/11 64-bit** · Free · No account needed · Your logs never leave your PC
 
-1. Click **Download** above — it opens the latest release page.
-2. Download the `tokentracker_*_x64-setup.exe` installer
-   (direct link for this version: [tokentracker_0.5.0_x64-setup.exe](https://github.com/SUMANTHXT900/tokentracker/releases/download/v0.5.0/tokentracker_0.5.0_x64-setup.exe)).
-3. Run it. Windows SmartScreen may ask on first install — click **More info → Run anyway**.
-4. Launch TokenTracker — it picks up your existing agent logs automatically and starts tracking.
+1. Click **Download** above — the latest installer downloads immediately. (No version hunting: the button always serves the newest release.)
+2. Run it. Windows SmartScreen may ask on first install — click **More info → Run anyway**.
+3. Launch TokenTracker — it picks up your existing agent logs automatically and starts tracking.
 
-> Prefer manual updates? Every release also ships a signed bundle the in-app updater (Settings → Updates) installs on your click — nothing ever installs silently.
+> Prefer to look first? Every version lives on the [latest release page](https://github.com/SUMANTHXT900/tokentracker/releases/latest), with the versioned `tokentracker_*_x64-setup.exe`, the `.msi` alternative, and full release notes. Prefer manual updates? The in-app updater (Settings → Updates) installs signed bundles on your click — nothing ever installs silently.
 
 ---
 
@@ -41,16 +37,16 @@ Every AI coding session burns tokens — across OpenCode, Copilot, Codex, Gemini
 
 | Screen | Answers |
 |---|---|
-| **Overview** | How much did I spend? Multi-series token chart (Total / Input / Cache / Output), top models, activity heatmap |
+| **Overview** | How much did I spend? Hero totals, multi-series token chart (Total / Input / Cache / Output), top models, activity heatmap — sliceable by client and date |
 | **Usage** | What did *today* look like? Day / Week / Month deep dive with period-over-period comparison |
-| **Sessions** | Which conversations cost the most? Searchable ledger with recency rails and inspectors |
+| **Sessions** | Which conversations cost the most? Searchable ledger; any row pops out into a full inspector card |
 | **Projects** | Where does the spend live? Per-workspace tokens, cost, and model mix |
-| **Models** | Which models drink the budget? Cache efficiency, reasoning, cost telemetry |
+| **Models** | Which models drink the budget? Cache efficiency, reasoning, cost telemetry — rows pop out too |
 | **Calendar** | Am I consistent? Coding-cadence heatmap |
 | **Focus** | What did *this session* cost? Focus sessions with a live token ticker and auto-stop |
 | **Share** | Flex it. Exportable PNG telemetry cards (1:1, 9:16, 16:9) |
 
-Plus: a **collapsible sidebar**, live file-watching (numbers update the moment your agents write logs), and **notify-only auto-updates** — stable channel, nothing installs without your click.
+Plus: a **collapsible sidebar**, live file-watching (numbers update the moment your agents write logs), cursor-following tooltips on every data cell, and **notify-only auto-updates** — stable channel, nothing installs without your click.
 
 ## Privacy architecture
 
@@ -69,7 +65,7 @@ TokenTracker makes a small, fixed set of outbound requests. None of them carry y
 | `models.dev/api.json` | Same pricing refresh | Plain GET; no user data |
 | `github.com/SUMANTHXT900/tokentracker/releases/latest/download/latest.json` | Once at launch, and when you click **Check for updates** | Plain GET; no version or query parameters; only the `tauri-plugin-updater/<version>` User-Agent |
 | GitHub Releases asset URL from `latest.json` | Only when you click **Download** or **Install** | Request for the signed update bundle; no usage data |
-| `fonts.googleapis.com`, `fonts.gstatic.com` | Window load, for the UI typefaces | Standard font CSS/WOFF2 GETs; no usage data |
+| `fonts.googleapis.com`, `fonts.gstatic.com` | Window load, for the UI typefaces | Standard font CSS/WOFF2 GETs; no user data |
 
 **Never sent:** prompts or message content, session titles, token counts, costs, model usage, workspace/project names, file paths, API keys/credentials, or any user identifier.
 
@@ -108,12 +104,12 @@ npm run build      # production bundle
 Windows-only, stable channel, tag-driven:
 
 ```bash
-# 1. Bump version in package.json + tauri.conf.json + Cargo.toml (all three must match)
+# 1. Bump version in package.json + package-lock.json + tauri.conf.json + Cargo.toml (all four must match)
 # 2. Commit, then:
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-Tag push triggers the `release` workflow: guard checks (no placeholder keys/endpoints) → Windows build → signed artifacts → published GitHub Release with `latest.json`. Every installed app offers the update on next launch — notify-only, always.
+Tag push triggers the `release` workflow: guard checks (no placeholder keys/endpoints, tag matches all four version files) → Windows build → signed artifacts → published GitHub Release with `latest.json`. Every release also uploads `tokentracker-setup-x64.exe` (a stable-name copy of the signed installer) so the README download button never needs a per-release edit. Every installed app offers the update on next launch — notify-only, always.
 
 > The updater private key lives **outside this repo** (never committed — see `.gitignore`). Lose it and no future update will ever be trusted; leak it and anyone can ship "updates" your users trust. Back it up like a password.
 
