@@ -434,7 +434,7 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
 
   const prompt =
     days.length > 0
-      ? "Hover a day to read tokens, spend and messages"
+      ? "Hover or focus a day to read tokens, spend and messages"
       : since || until
         ? "No tracked activity in this range"
         : "No tracked activity yet";
@@ -517,23 +517,25 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
               })}
             </div>
 
-            {filterPill("7d", () => applyQuick("7d"), activeQuick === "7d")}
-            {filterPill("30d", () => applyQuick("30d"), activeQuick === "30d")}
-            {filterPill("90d", () => applyQuick("90d"), activeQuick === "90d")}
-            {filterPill("All", () => applyQuick("all"), activeQuick === "all")}
-            {scopedDay &&
-              filterPill(
-                `Clear ${fmtDayLabel(
-                  scopedDay,
-                  scopedDay.slice(0, 4) !== todayIso.slice(0, 4),
-                )}`,
-                () => {
-                  setHeatmapDay(null);
-                  setRange(null, null);
-                },
-                undefined,
-                true,
-              )}
+            <div role="group" aria-label="Heatmap range" className="flex flex-wrap items-center gap-1.5">
+              {filterPill("7d", () => applyQuick("7d"), activeQuick === "7d")}
+              {filterPill("30d", () => applyQuick("30d"), activeQuick === "30d")}
+              {filterPill("90d", () => applyQuick("90d"), activeQuick === "90d")}
+              {filterPill("All", () => applyQuick("all"), activeQuick === "all")}
+              {scopedDay &&
+                filterPill(
+                  `Clear ${fmtDayLabel(
+                    scopedDay,
+                    scopedDay.slice(0, 4) !== todayIso.slice(0, 4),
+                  )}`,
+                  () => {
+                    setHeatmapDay(null);
+                    setRange(null, null);
+                  },
+                  undefined,
+                  true,
+                )}
+            </div>
           </div>
         </div>
 

@@ -62,7 +62,7 @@ export default function ClientFilterDropdown({
   const triggerAria = allSelected
     ? `Filter by client: All clients (${menuClients.length} available)`
     : single
-      ? `Filter by client: ${single.label}`
+      ? `Filter by client: ${single.label}${singleMoney && singleMoney.text !== "—" ? `, ${singleMoney.text}` : ""}`
       : `Filter by client: ${clients.length} clients selected`;
 
   const footerLabel = allSelected
