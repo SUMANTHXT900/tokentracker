@@ -688,7 +688,7 @@ export default function TripView({
                     <AnimatedNumber value={tokens} format={(n) => splitTokens(n).num} />
                   </span>
                   <span
-                    className="shrink-0 font-mono text-lg font-medium text-ink-3"
+                    className="shrink-0 font-mono text-lg font-medium text-[#414755]"
                     title={`${fullNum(tokens)} tokens consumed this session`}
                   >
                     {tokenSplit.unit ? `${tokenSplit.unit} tok` : "tok"}
@@ -700,39 +700,40 @@ export default function TripView({
                 {hasInputOutput && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e5ea] bg-white px-2.5 py-1 font-mono text-xs text-[#414755]"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#0070eb]/25 bg-[#0070eb]/[0.06] px-2.5 py-1 font-mono text-xs text-[#0058bc]"
                       title={`${fullNum(safeNumber(inputTokens))} input tokens this session`}
                     >
                       <ArrowDown
                         size={14}
                         weight="light"
-                        className="text-ink-3"
+                        className="text-[#0070eb]"
                         aria-hidden="true"
                       />
                       IN
-                      <strong className="tnum font-semibold text-[#1a1b1f]">
+                      <strong className="tnum font-semibold text-[#004493]">
                         {fmtTokens(safeNumber(inputTokens))}
                       </strong>
                     </span>
                     <span
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e5ea] bg-white px-2.5 py-1 font-mono text-xs text-[#414755]"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#D55E00]/25 bg-[#D55E00]/[0.06] px-2.5 py-1 font-mono text-xs text-[#A64A00]"
                       title={`${fullNum(safeNumber(outputTokens))} output tokens this session`}
                     >
                       <ArrowUp
                         size={14}
                         weight="light"
-                        className="text-ink-3"
+                        className="text-[#D55E00]"
                         aria-hidden="true"
                       />
                       OUT
-                      <strong className="tnum font-semibold text-[#1a1b1f]">
+                      <strong className="tnum font-semibold text-[#8A3E00]">
                         {fmtTokens(safeNumber(outputTokens))}
                       </strong>
                     </span>
                   </div>
                 )}
                 <p className="text-xs text-ink-3">
-                  Odometer · counts from zero for this session
+                  <span className="font-medium text-[#414755]">Odometer</span> · counts
+                  from zero for this session
                 </p>
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e5ea] bg-white px-2.5 py-1 font-mono text-xs text-[#414755]">

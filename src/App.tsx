@@ -26,6 +26,7 @@ import {
   SquaresFour,
   StopCircle,
   Timer,
+  Trash,
   X,
 } from "@phosphor-icons/react";
 import {
@@ -34,6 +35,7 @@ import {
   useTrips,
   cmdRescan,
   cmdStopTrip,
+  cmdDeleteTrip,
   onUsageUpdated,
   onTripStopped,
   type ModelRowDTO,
@@ -287,6 +289,8 @@ export default function App() {
     tone: "info" | "error";
   } | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [presetDays, setPresetDays] = useState<number | null>(null);
   const updater = useUpdater();
@@ -450,6 +454,41 @@ export default function App() {
     const text = `Focus session closed. The final summary is ready.`;
     setFocusMsg({ text, tone: "info" });
     if (fromBanner) setScanMsg(text);
+  };
+
+  // Escape restores row actions while a delete confirm is open.
+  useEffect(() => {
+    if (!confirmingDeleteId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirmingDeleteId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmingDeleteId]);
+
+  // Delete is user-confirmed in the row: refresh the logbook, drop the open
+  // detail when it was deleted, and let `runningTrip` update via refetch.
+  const deleteFocusTrip = async (tripId: string) => {
+    setDeletingId(tripId);
+    setFocusMsg(null);
+    try {
+      await cmdDeleteTrip(tripId);
+    } catch (e) {
+      setDeletingId(null);
+      setFocusMsg({
+        text: `Couldn't delete the focus session: ${e instanceof Error ? e.message : String(e)}`,
+        tone: "error",
+      });
+      return;
+    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["trips"] }),
+      queryClient.invalidateQueries({ queryKey: ["trip", tripId] }),
+    ]).catch(() => {});
+    setDeletingId(null);
+    setConfirmingDeleteId(null);
+    if (focusTripId === tripId) setFocusTripId(null);
+    setFocusMsg({ text: "Focus session deleted.", tone: "info" });
   };
 
   const applyPreset = (days: number) => {
@@ -1295,6 +1334,37 @@ export default function App() {
                                   </div>
                                 </dl>
                                 <div className="flex shrink-0 items-center gap-1 sm:ml-auto sm:justify-end">
+                                  {confirmingDeleteId === t.trip_id ? (
+                                    <>
+                                      <span className="whitespace-nowrap text-[12px] text-ink-2">
+                                        Delete this session?
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setConfirmingDeleteId(null);
+                                        }}
+                                        disabled={deletingId === t.trip_id}
+                                        className="inline-flex items-center rounded-full border border-[#e5e5ea] bg-white px-3 py-1 text-[11px] font-semibold text-[#414755] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#f4f3f8] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-[0.97] disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none"
+                                      >
+                                        Keep
+                                      </button>
+                                      <button
+                                        type="button"
+                                        aria-label={`Delete ${t.name} permanently`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void deleteFocusTrip(t.trip_id);
+                                        }}
+                                        disabled={deletingId === t.trip_id}
+                                        className="inline-flex items-center rounded-full border border-[#C81E1E]/35 bg-[#C81E1E]/[0.07] px-3 py-1 text-[11px] font-semibold text-[#9B1C1C] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#C81E1E]/[0.12] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C81E1E]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-[0.97] disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none"
+                                      >
+                                        {deletingId === t.trip_id ? "Deleting…" : "Delete"}
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
                                   <button
                                     type="button"
                                     title="Open focus session"
@@ -1320,6 +1390,21 @@ export default function App() {
                                   >
                                     <ShareNetwork size={14} weight="light" aria-hidden="true" />
                                   </button>
+                                      <button
+                                        type="button"
+                                        title="Delete focus session"
+                                        aria-label={`Delete ${t.name}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setFocusMsg(null);
+                                          setConfirmingDeleteId(t.trip_id);
+                                        }}
+                                        className="rounded-md p-1.5 text-ink-3 opacity-80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-black/[0.04] hover:text-[#1a1b1f] group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[#0070eb]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none"
+                                      >
+                                        <Trash size={14} weight="light" aria-hidden="true" />
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </motion.li>
                             );

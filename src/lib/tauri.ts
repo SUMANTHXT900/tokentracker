@@ -157,6 +157,11 @@ export interface TripDetailDTO {
   daily: DailyDTO[];
 }
 
+export interface DeletedTripDTO {
+  trip_id: string;
+  was_active: boolean;
+}
+
 export interface Filters {
   clients: string[];
   since: string | null; // YYYY-MM-DD
@@ -275,6 +280,11 @@ export async function cmdStopTrip(tripId: string): Promise<TripDTO> {
 export async function cmdGetTrip(tripId: string): Promise<TripDetailDTO> {
   // Same Tauri v2 argument mapping as stop_trip.
   return invoke<TripDetailDTO>("get_trip", { tripId });
+}
+
+export async function cmdDeleteTrip(tripId: string): Promise<DeletedTripDTO> {
+  // Same Tauri v2 argument mapping as stop_trip.
+  return invoke<DeletedTripDTO>("delete_trip", { tripId });
 }
 
 export async function onUsageUpdated(cb: (payload?: unknown) => void): Promise<() => void> {

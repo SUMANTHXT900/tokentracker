@@ -203,6 +203,12 @@ pub struct TripBaselineDTO {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeletedTripDTO {
+    pub trip_id: String,
+    pub was_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TripDetailDTO {
     pub trip: TripDTO,
     pub baseline: TripBaselineDTO,
@@ -326,6 +332,26 @@ fn stop_trip_in_list(
         *trip = trip_stop_now(trip.clone(), reason);
     }
     Ok((config_to_dto(trip, false), was_running))
+}
+
+/// Remove `trip_id` from the list. Returns the removed trip.
+/// Missing ids error with the user-facing "Focus session not found." message.
+fn delete_trip_in_list(trips: &mut Vec<TripConfig>, trip_id: &str) -> Result<TripConfig, String> {
+    let pos = trips
+        .iter()
+        .position(|t| t.id == trip_id)
+        .ok_or_else(|| "Focus session not found.".to_string())?;
+    Ok(trips.remove(pos))
+}
+
+/// Clear `active` when it holds `trip_id`. Returns whether it was active.
+fn clear_active_if_matches(active: &mut Option<TripConfig>, trip_id: &str) -> bool {
+    if active.as_ref().map(|a| a.id.as_str()) == Some(trip_id) {
+        *active = None;
+        true
+    } else {
+        false
+    }
 }
 
 /// Build the full detail payload from already-parsed rows. Pure apart from
@@ -700,6 +726,29 @@ fn stop_trip(
 }
 
 #[tauri::command]
+fn delete_trip(state: State<'_, AppState>, trip_id: String) -> Result<DeletedTripDTO, String> {
+    // Remove the entry under the trips lock, then release it before touching
+    // `active_trip` (non-nested lock scopes, mirroring stop_trip).
+    {
+        let mut trips = state
+            .trips
+            .lock()
+            .map_err(|e| format!("trip state poisoned: {e}"))?;
+        delete_trip_in_list(&mut trips, &trip_id)?;
+    }
+    // Clear the active slot when it holds the deleted id.
+    let was_active = {
+        let mut active = state
+            .active_trip
+            .lock()
+            .map_err(|e| format!("trip state poisoned: {e}"))?;
+        clear_active_if_matches(&mut active, &trip_id)
+    };
+    persist_trips(&state);
+    Ok(DeletedTripDTO { trip_id, was_active })
+}
+
+#[tauri::command]
 async fn get_trip(state: State<'_, AppState>, trip_id: String) -> Result<TripDetailDTO, String> {
     let trip = {
         let trips = state
@@ -878,6 +927,7 @@ pub fn run() {
             list_trips,
             start_trip,
             stop_trip,
+            delete_trip,
             get_trip,
         ])
         .build(tauri::generate_context!())
@@ -1011,6 +1061,56 @@ mod tests {
         assert_eq!(trips[0].ended_at_ms, Some(1_234));
 
         assert!(stop_trip_in_list(&mut trips, "missing", None).is_err());
+    }
+
+    fn trip_with_id(id: &str, ended: Option<i64>) -> TripConfig {
+        TripConfig {
+            id: id.into(),
+            ..trip(1_000, ended)
+        }
+    }
+
+    #[test]
+    fn delete_existing_removes_and_is_gone() {
+        let mut trips = vec![
+            trip_with_id("a", Some(2_000)),
+            trip_with_id("b", None),
+        ];
+        let removed = delete_trip_in_list(&mut trips, "a").expect("found");
+        assert_eq!(removed.id, "a");
+        assert_eq!(trips.len(), 1);
+        assert_eq!(trips[0].id, "b");
+        assert!(!trips.iter().any(|t| t.id == "a"));
+
+        // Second delete of the same id errors like a missing id.
+        let err = delete_trip_in_list(&mut trips, "a").unwrap_err();
+        assert_eq!(err, "Focus session not found.");
+    }
+
+    #[test]
+    fn delete_missing_id_errors() {
+        let mut trips = vec![trip_with_id("a", Some(2_000))];
+        let err = delete_trip_in_list(&mut trips, "nope").unwrap_err();
+        assert_eq!(err, "Focus session not found.");
+        assert_eq!(trips.len(), 1, "failed delete must not mutate");
+    }
+
+    #[test]
+    fn deleting_active_session_clears_active() {
+        let mut trips = vec![trip_with_id("a", None)];
+        let mut active: Option<TripConfig> = Some(trip_with_id("a", None));
+
+        delete_trip_in_list(&mut trips, "a").expect("found");
+        assert!(trips.is_empty());
+        assert!(clear_active_if_matches(&mut active, "a"));
+        assert!(active.is_none());
+
+        // Deleting a non-active id leaves the active slot untouched.
+        let mut trips = vec![trip_with_id("b", Some(2_000))];
+        let mut active: Option<TripConfig> = Some(trip_with_id("a", None));
+        delete_trip_in_list(&mut trips, "b").expect("found");
+        assert!(!clear_active_if_matches(&mut active, "b"));
+        assert_eq!(active.as_ref().map(|t| t.id.as_str()), Some("a"));
     }
 
     #[test]
