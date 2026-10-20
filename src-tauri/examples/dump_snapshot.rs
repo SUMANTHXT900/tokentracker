@@ -42,7 +42,7 @@ async fn main() {
         }
     }
 
-    match parse_to_snapshot_async(None, clients, since, until).await {
+    match parse_to_snapshot_async(None, clients, since, until, None).await {
         Ok(mut snap) => {
             snap.rows.clear();
             match serde_json::to_string(&snap) {

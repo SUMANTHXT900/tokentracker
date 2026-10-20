@@ -403,6 +403,22 @@ pub fn reconcile_on_startup(store: &mut TripStoreFile, now_ms: i64) -> bool {
             changed = true;
         }
     }
+    // Enforce the single-runner invariant: `active_trip` can hold at most one
+    // trip, so any other trip left running (older orphans from a replaced
+    // active trip, or a superseded newest) is closed now. Without this, those
+    // orphans stay `ended_at_ms: None` forever and resurrect as running.
+    if let Some(active_id) = store.active_trip_id.clone() {
+        for trip in store
+            .trips
+            .iter_mut()
+            .filter(|t| t.id != active_id && t.ended_at_ms.is_none())
+        {
+            let closed = trip_stop_at(trip.clone(), now_ms, Some("superseded".to_string()));
+            trip.ended_at_ms = closed.ended_at_ms;
+            trip.stop_reason = closed.stop_reason;
+            changed = true;
+        }
+    }
     changed
 }
 
@@ -663,6 +679,50 @@ mod tests {
         assert!(reconcile_on_startup(&mut store, 3000));
         assert_eq!(store.active_trip_id.as_deref(), Some("new"));
         assert!(store.trips.iter().all(|t| t.resumed));
+    }
+
+    #[test]
+    fn reconcile_supersedes_every_other_running_trip() {
+        let mut store = TripStoreFile {
+            trips: vec![
+                active_trip("old", "manual", 1000, None),
+                active_trip("newest", "manual", 3000, None),
+                active_trip("middle", "manual", 2000, None),
+            ],
+            active_trip_id: None,
+        };
+        assert!(reconcile_on_startup(&mut store, 5000));
+        assert_eq!(store.active_trip_id.as_deref(), Some("newest"));
+        let running: Vec<&str> = store
+            .trips
+            .iter()
+            .filter(|t| t.ended_at_ms.is_none())
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(running, vec!["newest"], "exactly one trip may run");
+        for id in ["old", "middle"] {
+            let t = store.trips.iter().find(|t| t.id == id).unwrap();
+            assert_eq!(t.ended_at_ms, Some(5000), "{id} closed at now");
+            assert_eq!(t.stop_reason.as_deref(), Some("superseded"));
+        }
+    }
+
+    #[test]
+    fn reconcile_keeps_explicit_active_and_supersedes_orphans() {
+        let mut store = TripStoreFile {
+            trips: vec![
+                active_trip("chosen", "manual", 1000, None),
+                active_trip("orphan", "manual", 4000, None),
+            ],
+            active_trip_id: Some("chosen".into()),
+        };
+        assert!(reconcile_on_startup(&mut store, 5000));
+        assert_eq!(store.active_trip_id.as_deref(), Some("chosen"));
+        let chosen = store.trips.iter().find(|t| t.id == "chosen").unwrap();
+        assert!(chosen.ended_at_ms.is_none());
+        let orphan = store.trips.iter().find(|t| t.id == "orphan").unwrap();
+        assert_eq!(orphan.ended_at_ms, Some(5000));
+        assert_eq!(orphan.stop_reason.as_deref(), Some("superseded"));
     }
 
     #[test]

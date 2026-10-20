@@ -141,11 +141,17 @@ pub fn start_trip_worker(app: AppHandle) {
                     #[cfg(desktop)]
                     {
                         use tauri_plugin_notification::NotificationExt;
+                        let reason_label = match reason.as_str() {
+                            "time-elapsed" => "Time limit reached",
+                            "idle-timeout" => "Idle timeout",
+                            "manual" => "Manual stop",
+                            other => other,
+                        };
                         let _ = app
                             .notification()
                             .builder()
-                            .title("Trip stopped")
-                            .body(format!("{} · {}", trip.name, reason))
+                            .title("Focus session stopped")
+                            .body(format!("{} · {}", trip.name, reason_label))
                             .show();
                     }
                 }

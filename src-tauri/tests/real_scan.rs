@@ -6,7 +6,7 @@ use tokentracker_lib::adapter::parse_to_snapshot_async;
 
 #[tokio::test]
 async fn real_home_scan_smoke() {
-    let snap = parse_to_snapshot_async(None, None, None, None)
+    let snap = parse_to_snapshot_async(None, None, None, None, None)
         .await
         .expect("real scan should not error");
     println!(

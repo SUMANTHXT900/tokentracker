@@ -47,7 +47,7 @@ Every AI coding session burns tokens — across OpenCode, Copilot, Codex, Gemini
 | **Projects** | Where does the spend live? Per-workspace tokens, cost, and model mix |
 | **Models** | Which models drink the budget? Cache efficiency, reasoning, cost telemetry |
 | **Calendar** | Am I consistent? Coding-cadence heatmap |
-| **Focus** | What did *this work block* cost? Trip-meter with live token ticker and auto-stop |
+| **Focus** | What did *this session* cost? Focus sessions with a live token ticker and auto-stop |
 | **Share** | Flex it. Exportable PNG telemetry cards (1:1, 9:16, 16:9) |
 
 Plus: a **collapsible sidebar**, live file-watching (numbers update the moment your agents write logs), and **notify-only auto-updates** — stable channel, nothing installs without your click.
@@ -121,7 +121,7 @@ Tag push triggers the `release` workflow: guard checks (no placeholder keys/endp
 
 TokenTracker's parsing and cost engine is [`tokscale-core`](https://github.com/junhoyeo/tokscale) by **Junho Yeo** (MIT) — used as a library for reading local agent logs and aggregating token/cost stats. Upstream TUI, submit, leaderboard, and telemetry modules are intentionally **not** used, keeping this app fully offline. Full license text in [`ATTRIBUTION.md`](./ATTRIBUTION.md).
 
-All UI/UX, the Tauri shell, Focus metering, share-card studio, and update pipeline are original to this project.
+All UI/UX, the Tauri shell, Focus sessions, share-card studio, and update pipeline are original to this project.
 
 ## License
 

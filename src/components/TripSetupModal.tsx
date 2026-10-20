@@ -1,28 +1,58 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, MotionConfig } from "motion/react";
-import { Minus, Play, Plus, Timer, Users } from "@phosphor-icons/react";
-import { cmdStartTrip, type StopMode, type TripScope } from "../lib/tauri";
-import { useStore } from "../store";
+import { Minus, Play, Plus, Timer, Users, WarningCircle } from "@phosphor-icons/react";
+import { cmdStartTrip, type StopMode, type TripDTO, type TripScope } from "../lib/tauri";
 import { cn } from "../lib/cn";
 import { getClientVisual } from "../lib/client-color";
 
 type ModeKind = "manual" | "after" | "idle";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
+const MAX_NAME_LENGTH = 80;
+
+/** Local calendar date — `toISOString()` would roll to the wrong day near UTC midnight. */
+function localDateStamp(date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function defaultFocusName(): string {
+  return `Focus ${localDateStamp()}`;
+}
+
+function errorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message || "Couldn’t start the focus session.";
+  if (typeof e === "string" && e.trim()) return e;
+  if (e && typeof e === "object" && "message" in e) {
+    const message = (e as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return "Couldn’t start the focus session.";
+}
 
 export default function TripSetupModal({
   onClose,
   allClients = [],
+  onStarted,
+  running = false,
 }: {
   onClose: () => void;
   allClients?: string[];
+  onStarted?: (trip: TripDTO) => void;
+  running?: boolean;
 }) {
-  const { clients, setActiveTripId } = useStore();
-  // Prefer explicit prop list (independent of global filter selection); fall back to store.
-  const list = allClients.length > 0 ? allClients : clients;
+  // Client chips are driven exclusively by the explicit prop list. The global
+  // filter store is intentionally not consulted here.
+  const list = Array.from(new Set(allClients));
   const [name, setName] = useState("");
+  const [defaultName] = useState(defaultFocusName);
+  // `all` is the source of truth while it is true; `selected` only carries an
+  // explicit subset. Starting `selected` empty avoids the old "all minus one"
+  // ambiguity when the first chip is clicked.
   const [all, setAll] = useState(true);
-  const [selected, setSelected] = useState<string[]>(() => [...list]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [mode, setMode] = useState<ModeKind>("manual");
   const [hours, setHours] = useState(4);
   const [minutes, setMinutes] = useState(30);
@@ -35,46 +65,82 @@ export default function TripSetupModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
-  // Mirror for the trap/Escape closure so `busy` stays out of the effect deps:
-  // re-running the focus effect on every busy flip stole focus back to the
-  // opener mid-submit and re-captured a stale return target.
+  // Mirrors for the focus/Escape closure so the effect can run exactly once.
+  // App passes an inline `onClose`, so depending on it re-ran this effect on
+  // every parent render — stealing focus back to the opener mid-submit.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
   const busyRef = useRef(busy);
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
 
-  // Focus trap + Escape + return-focus. The dialog owns Tab while open and
-  // hands focus back to the opener on unmount (WCAG 2.4.3 / 2.1.2).
+  // Reconcile the explicit subset when the available client list changes.
+  // Returning `prev` when nothing changed keeps a memo-less parent from
+  // triggering a render loop through the array identity.
+  useEffect(() => {
+    const allowed = new Set(allClients);
+    setSelected((prev) => {
+      const next: string[] = [];
+      for (const c of prev) {
+        if (allowed.has(c) && !next.includes(c)) next.push(c);
+      }
+      const unchanged =
+        next.length === prev.length && next.every((c, i) => c === prev[i]);
+      return unchanged ? prev : next;
+    });
+  }, [allClients]);
+
+  // Focus trap + Escape + return-focus + body scroll lock. The dialog owns Tab
+  // while open and hands focus back to the opener on unmount (WCAG 2.4.3 /
+  // 2.1.2). Empty deps are deliberate — see the ref mirrors above.
   useEffect(() => {
     prevFocusRef.current =
       typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    const previousOverflow =
+      typeof document !== "undefined" ? document.body.style.overflow : "";
+    if (typeof document !== "undefined") document.body.style.overflow = "hidden";
     nameRef.current?.focus();
     const fn = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        if (!busyRef.current) onClose();
+        if (!busyRef.current) onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
       const root = dialogRef.current;
       if (!root) return;
-      const items = Array.from(
+      const candidates = Array.from(
         root.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
         ),
-      // getClientRects: offsetParent is null for fixed-position subtrees in
-      // some browsers, which emptied the trap list and let Tab escape.
-      ).filter((el) => el.getClientRects().length > 0);
+        // getClientRects: offsetParent is null for fixed-position subtrees in
+        // some browsers, which emptied the trap list and let Tab escape.
+      );
+      const visible = candidates.filter((el) => el.getClientRects().length > 0);
+      // Some embedders (and jsdom) report no rects for an otherwise mounted
+      // dialog; fall back to every candidate rather than dropping the trap.
+      const items = visible.length > 0 ? visible : candidates;
       if (items.length === 0) {
         e.preventDefault();
         return;
       }
       const first = items[0];
       const last = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
+      const active = document.activeElement as HTMLElement | null;
+      // If focus escaped the dialog (e.g. the opener was removed), pull it to
+      // the first control instead of letting Tab walk the page behind.
+      if (!active || !root.contains(active)) {
+        e.preventDefault();
+        first.focus();
+        return;
+      }
+      if (e.shiftKey && (active === first || active === root)) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+      } else if (!e.shiftKey && active === last) {
         e.preventDefault();
         first.focus();
       }
@@ -82,16 +148,39 @@ export default function TripSetupModal({
     window.addEventListener("keydown", fn, true);
     return () => {
       window.removeEventListener("keydown", fn, true);
+      if (typeof document !== "undefined") {
+        document.body.style.overflow = previousOverflow;
+      }
       const prev = prevFocusRef.current;
       if (prev && typeof document !== "undefined" && document.contains(prev)) {
         prev.focus?.();
       }
     };
-  }, [onClose]);
+  }, []);
+
+  const clearError = () => setErr((prev) => (prev === null ? prev : null));
+
+  const chooseAll = () => {
+    clearError();
+    setAll(true);
+    setSelected([]);
+  };
 
   const toggle = (c: string) => {
-    setAll(false);
+    clearError();
+    // From "All", the first chip click expresses an explicit single-client
+    // subset — not "all clients except this one".
+    if (all) {
+      setAll(false);
+      setSelected([c]);
+      return;
+    }
     setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
+  };
+
+  const chooseMode = (m: ModeKind) => {
+    clearError();
+    setMode(m);
   };
 
   const clampHours = (v: number) =>
@@ -113,6 +202,7 @@ export default function TripSetupModal({
   };
 
   const stepHours = (delta: number) => {
+    clearError();
     const base = Number.isFinite(Number(hoursDraft)) ? Number(hoursDraft) : hours;
     const h = clampHours(Math.round((base + delta) * 10) / 10);
     setHours(h);
@@ -120,6 +210,7 @@ export default function TripSetupModal({
     setMode("after");
   };
   const stepMinutes = (delta: number) => {
+    clearError();
     const base = Number.isFinite(Number(minutesDraft))
       ? Math.round(Number(minutesDraft))
       : minutes;
@@ -130,7 +221,9 @@ export default function TripSetupModal({
   };
 
   const start = async () => {
-    const finalName = name.trim() || `Focus ${new Date().toISOString().slice(0, 10)}`;
+    if (busy || running) return;
+    const trimmed = name.trim().slice(0, MAX_NAME_LENGTH);
+    const finalName = trimmed || defaultName;
     if (!all && selected.length === 0) {
       setErr("Pick at least one client or use All.");
       return;
@@ -152,11 +245,17 @@ export default function TripSetupModal({
     setErr(null);
     try {
       const trip = await cmdStartTrip(finalName, scope, stop);
-      setActiveTripId(trip.trip_id);
-      onClose();
+      setBusy(false);
+      // A failure inside the parent's callback must not leave the modal open
+      // with Start re-armed after the session already started.
+      try {
+        onStarted?.(trip);
+      } catch {
+        // The session exists; closing is still the correct outcome.
+      }
+      onCloseRef.current();
     } catch (e) {
-      setErr(String(e));
-    } finally {
+      setErr(errorMessage(e));
       setBusy(false);
     }
   };
@@ -187,7 +286,8 @@ export default function TripSetupModal({
           role="dialog"
           aria-modal="true"
           aria-labelledby="trip-setup-title"
-          aria-describedby="trip-setup-desc"
+          aria-describedby={running ? "trip-setup-desc trip-setup-running" : "trip-setup-desc"}
+          aria-busy={busy}
           className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-[2rem] bg-white p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_32px_64px_-24px_rgba(16,24,40,0.25)] ring-1 ring-[#e5e5ea]"
         >
           {/* Card frame is fixed; only the form scrolls inside it, so the
@@ -205,35 +305,63 @@ export default function TripSetupModal({
 
             <div className="relative min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
               <p className="inline-flex items-center rounded-full border border-[#e5e5ea] bg-white px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-ink-3">
-                Zero the meter
+                Baseline capture
               </p>
-              <h2 id="trip-setup-title" className="font-display mt-2 text-xl font-semibold tracking-tight text-[#1a1b1f]">
-                New focus
+              <h2
+                id="trip-setup-title"
+                className="font-display mt-2 text-xl font-semibold tracking-tight text-[#1a1b1f]"
+              >
+                New focus session
               </h2>
               <p id="trip-setup-desc" className="mt-1 text-[13px] leading-relaxed text-ink-3">
-                Zero the trip meter and measure this work block from current totals.
+                Start from baseline — measure only what happens from the moment you start.
               </p>
 
+              {running && (
+                <div
+                  id="trip-setup-running"
+                  role="status"
+                  className="mt-4 flex items-start gap-2 rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900"
+                >
+                  <WarningCircle size={16} weight="light" className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <p>
+                    A focus session is already running. Stop it or open it before starting
+                    another.
+                  </p>
+                </div>
+              )}
+
               <label className="mt-5 block text-[13px] text-[#414755]">
-                Name
+                Session name
                 <input
                   ref={nameRef}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  maxLength={MAX_NAME_LENGTH}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    clearError();
+                  }}
                   className="tnum mt-1.5 w-full rounded-xl border border-[#e5e5ea] bg-white px-3 py-2.5 text-sm text-[#1a1b1f] shadow-[inset_0_1px_2px_rgba(16,24,40,0.06)] placeholder:text-ink-3 focus:border-[#0070eb]/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/40"
-                  placeholder={`Focus ${new Date().toISOString().slice(0, 10)}`}
+                  placeholder={defaultName}
                 />
               </label>
 
               <div className="mt-5 flex items-center gap-1.5 text-[13px] font-medium text-[#414755]">
                 <Users size={14} weight="light" className="text-[#0058bc]/70" aria-hidden="true" />
-                Scope
+                Session scope
               </div>
-              <p id="trip-scope-hint" className="mt-0.5 text-xs text-ink-3">Which clients count toward this trip.</p>
-              <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Clients" aria-describedby="trip-scope-hint">
+              <p id="trip-scope-hint" className="mt-0.5 text-xs text-ink-3">
+                Which clients count toward this focus session.
+              </p>
+              <div
+                className="mt-2 flex flex-wrap gap-1.5"
+                role="group"
+                aria-label="Clients in this focus session"
+                aria-describedby="trip-scope-hint"
+              >
                 <button
                   type="button"
-                  onClick={() => setAll(true)}
+                  onClick={chooseAll}
                   aria-pressed={all}
                   className={cn(
                     "rounded-full border px-3 py-1.5 text-xs transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/50",
@@ -267,17 +395,19 @@ export default function TripSetupModal({
                   );
                 })}
                 {list.length === 0 && (
-                  <span className="text-xs text-ink-3">No clients yet, focus covers all.</span>
+                  <span className="text-xs text-ink-3">
+                    No clients yet — this focus session covers all.
+                  </span>
                 )}
               </div>
 
               <fieldset className="mt-5 min-w-0 border-0 p-0">
                 <legend className="flex items-center gap-1.5 p-0 text-[13px] font-medium text-[#414755]">
                   <Timer size={14} weight="light" className="text-[#0058bc]/70" aria-hidden="true" />
-                  Stop condition
+                  Auto-stop condition
                 </legend>
                 <p id="trip-stop-hint" className="mt-0.5 text-xs text-ink-3">
-                  A focus can always be stopped by hand.
+                  A focus session can always be stopped by hand.
                 </p>
                 {/* Native radio group: same `name` gives free roving tabindex +
                     arrow-key support. Each card is a plain container — the
@@ -285,7 +415,7 @@ export default function TripSetupModal({
                     (never nested inside the label) so no ARIA nesting breakage. */}
                 <div className="mt-2 grid min-w-0 grid-cols-1 gap-2" aria-describedby="trip-stop-hint">
                   <motion.div
-                    onClick={() => setMode("manual")}
+                    onClick={() => chooseMode("manual")}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
@@ -298,7 +428,7 @@ export default function TripSetupModal({
                           name="trip-stop-mode"
                           value="manual"
                           checked={mode === "manual"}
-                          onChange={() => setMode("manual")}
+                          onChange={() => chooseMode("manual")}
                           className="sr-only"
                         />
                         <span
@@ -317,7 +447,7 @@ export default function TripSetupModal({
                   </motion.div>
 
                   <motion.div
-                    onClick={() => setMode("after")}
+                    onClick={() => chooseMode("after")}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5, ease: EASE, delay: 0.12 }}
@@ -330,7 +460,7 @@ export default function TripSetupModal({
                           name="trip-stop-mode"
                           value="after"
                           checked={mode === "after"}
-                          onChange={() => setMode("after")}
+                          onChange={() => chooseMode("after")}
                           className="sr-only"
                         />
                         <span
@@ -360,12 +490,15 @@ export default function TripSetupModal({
                           inputMode="decimal"
                           value={hoursDraft}
                           disabled={mode !== "after"}
-                          onChange={(e) => setHoursDraft(e.target.value)}
+                          onChange={(e) => {
+                            setHoursDraft(e.target.value);
+                            clearError();
+                          }}
                           onBlur={commitHours}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") e.currentTarget.blur();
                           }}
-                          onFocus={() => setMode("after")}
+                          onFocus={() => chooseMode("after")}
                           aria-label="Hours until auto-stop"
                           className={digitWell}
                         />
@@ -384,7 +517,7 @@ export default function TripSetupModal({
                   </motion.div>
 
                   <motion.div
-                    onClick={() => setMode("idle")}
+                    onClick={() => chooseMode("idle")}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5, ease: EASE, delay: 0.19 }}
@@ -397,7 +530,7 @@ export default function TripSetupModal({
                           name="trip-stop-mode"
                           value="idle"
                           checked={mode === "idle"}
-                          onChange={() => setMode("idle")}
+                          onChange={() => chooseMode("idle")}
                           className="sr-only"
                         />
                         <span
@@ -429,12 +562,15 @@ export default function TripSetupModal({
                           inputMode="numeric"
                           value={minutesDraft}
                           disabled={mode !== "idle"}
-                          onChange={(e) => setMinutesDraft(e.target.value)}
+                          onChange={(e) => {
+                            setMinutesDraft(e.target.value);
+                            clearError();
+                          }}
                           onBlur={commitMinutes}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") e.currentTarget.blur();
                           }}
-                          onFocus={() => setMode("idle")}
+                          onFocus={() => chooseMode("idle")}
                           aria-label="Idle minutes until auto-stop"
                           className={digitWell}
                         />
@@ -468,18 +604,30 @@ export default function TripSetupModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-full border border-[#e5e5ea] px-4 py-2 text-sm text-[#414755] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-[#c9c9d2] hover:text-[#1a1b1f] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/50"
+                disabled={busy}
+                className="rounded-full border border-[#e5e5ea] px-4 py-2 text-sm text-[#414755] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-[#c9c9d2] hover:text-[#1a1b1f] active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/50 disabled:cursor-wait disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={start}
-                disabled={busy}
+                disabled={busy || running}
                 aria-busy={busy}
-                className="group inline-flex items-center gap-2 rounded-full bg-[#0058bc] py-2 pl-5 pr-2 text-sm font-semibold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_12px_28px_-12px_rgba(0,88,188,0.55)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#0067d6] active:scale-[0.97] active:bg-[#004da6] disabled:cursor-wait disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                aria-label={
+                  running
+                    ? "A focus session is already running"
+                    : busy
+                      ? "Starting focus session…"
+                      : "Start focus session"
+                }
+                title={running ? "Stop or open the running focus session first" : undefined}
+                className={cn(
+                  "group inline-flex items-center gap-2 rounded-full bg-[#0058bc] py-2 pl-5 pr-2 text-sm font-semibold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_12px_28px_-12px_rgba(0,88,188,0.55)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#0067d6] active:scale-[0.97] active:bg-[#004da6] disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb] focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+                  running ? "disabled:cursor-not-allowed" : "disabled:cursor-wait",
+                )}
               >
-                {busy ? "Starting" : "Start focus"}
+                {running ? "Session running" : busy ? "Starting…" : "Start focus session"}
                 <span
                   aria-hidden
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105 group-active:scale-90"

@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Sparkle,
   SquaresFour,
+  StopCircle,
   Timer,
   X,
 } from "@phosphor-icons/react";
@@ -32,12 +33,11 @@ import {
   useLiveStatus,
   useTrips,
   cmdRescan,
+  cmdStopTrip,
   onUsageUpdated,
   onTripStopped,
-  cmdGetTrip,
   type ModelRowDTO,
   type ProjectRowDTO,
-  type TripDTO,
 } from "./lib/tauri";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore, type Page } from "./store";
@@ -51,6 +51,7 @@ import Heatmap from "./components/Heatmap";
 import SessionsTable from "./components/SessionsTable";
 import TripSetupModal from "./components/TripSetupModal";
 import TripView from "./components/TripView";
+import SessionShareModal from "./components/SessionShareModal";
 import Titlebar from "./components/Titlebar";
 import PngCards from "./components/PngCards";
 import UsageDetail from "./components/UsageDetail";
@@ -107,7 +108,7 @@ const PAGE_META: Record<Page, { title: string; desc: string }> = {
   },
   trips: {
     title: "Focus",
-    desc: "Trip-meter sessions that measure token delta while you work.",
+    desc: "Focus sessions that measure the token delta while you work.",
   },
   cards: {
     title: "Share",
@@ -159,19 +160,31 @@ function fmtStamp(iso: string | null): string {
   });
 }
 
-const STOP_REASON_PILL: Record<string, { label: string; cls: string }> = {
-  manual: {
-    label: "Stopped manually",
-    cls: "whitespace-nowrap border-[#e5e5ea] bg-[#f4f3f8] text-[#414755]",
-  },
-  after: {
-    label: "Time limit",
-    cls: "whitespace-nowrap border-amber-200 bg-amber-50 text-amber-700",
-  },
-  idle: {
-    label: "Idle timeout",
-    cls: "whitespace-nowrap border-blue-200 bg-blue-50 text-[#0058bc]",
-  },
+/** Human labels for raw backend stop reasons (manual, time-elapsed, …). */
+function stopReasonLabel(reason: string | null | undefined): string {
+  if (!reason) return "Stopped";
+  switch (reason) {
+    case "manual":
+      return "Stopped manually";
+    case "after":
+    case "time-elapsed":
+      return "Time limit reached";
+    case "idle":
+    case "idle-timeout":
+      return "Idle timeout";
+    default:
+      return reason
+        .replace(/[-_]+/g, " ")
+        .replace(/^\w/, (c) => c.toUpperCase());
+  }
+}
+
+const STOP_REASON_CLS: Record<string, string> = {
+  manual: "whitespace-nowrap border-[#e5e5ea] bg-[#f4f3f8] text-[#414755]",
+  after: "whitespace-nowrap border-amber-200 bg-amber-50 text-amber-700",
+  "time-elapsed": "whitespace-nowrap border-amber-200 bg-amber-50 text-amber-700",
+  idle: "whitespace-nowrap border-blue-200 bg-blue-50 text-[#0058bc]",
+  "idle-timeout": "whitespace-nowrap border-blue-200 bg-blue-50 text-[#0058bc]",
 };
 
 interface ClientStat {
@@ -237,17 +250,59 @@ function BootOverlay() {
 }
 
 export default function App() {
-  const { page, setPage, clients, setClients, since, until, setRange, activeTripId } = useStore();
+  const {
+    page,
+    setPage,
+    clients,
+    setClients,
+    since,
+    until,
+    setRange,
+    focusTripId,
+    setFocusTripId,
+  } = useStore();
   const filters = { clients, since, until };
   const { data: snap, refetch, isFetching, isPending } = useSnapshot(filters);
   const { data: live } = useLiveStatus();
-  const { data: trips } = useTrips();
+  const {
+    data: tripsData,
+    isPending: tripsPending,
+    isError: tripsError,
+    isFetching: tripsFetching,
+    refetch: refetchTrips,
+  } = useTrips();
+  const trips = tripsData ?? [];
+  // `active` is the backend's restored running trip; fall back to "not stopped"
+  // for older payloads (or the moment before the list refreshes).
+  const runningTrip = trips.find((t) => t.active) ?? trips.find((t) => !t.stopped_at) ?? null;
+  const runningTripId = runningTrip?.trip_id ?? null;
+  const focusTrip = focusTripId
+    ? (trips.find((t) => t.trip_id === focusTripId) ?? null)
+    : null;
   const [tripModal, setTripModal] = useState(false);
+  const [shareTripId, setShareTripId] = useState<string | null>(null);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
+  const [focusMsg, setFocusMsg] = useState<{
+    text: string;
+    tone: "info" | "error";
+  } | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [presetDays, setPresetDays] = useState<number | null>(null);
   const updater = useUpdater();
   const queryClient = useQueryClient();
+
+  // One-second clock only while a session runs: resume card / banner elapsed.
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!runningTripId) return;
+    setClockNow(Date.now());
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [runningTripId]);
+  const runningElapsed = runningTrip
+    ? fmtDurationMs(clockNow - new Date(runningTrip.started_at).getTime())
+    : "";
 
   // Collapsible rail: pinned preference + transient hover/focus reveal.
   // App-local only (store.ts untouched); preference persists in localStorage.
@@ -320,6 +375,11 @@ export default function App() {
     onUsageUpdated(() => {
       queryClient.invalidateQueries({ queryKey: ["usage"] });
       queryClient.invalidateQueries({ queryKey: ["live-status"] });
+      // Keep the open/running session summary in step with the watcher even
+      // between its own 15s polls.
+      if (runningTripId) {
+        queryClient.invalidateQueries({ queryKey: ["trip", runningTripId] });
+      }
       // Static text: identical value dedupes in React, so screen readers
       // are not re-announced on every background watcher tick.
       setScanMsg("Auto-updated");
@@ -327,17 +387,19 @@ export default function App() {
       unlisten = u;
     });
     return () => unlisten?.();
-  }, [queryClient]);
+  }, [queryClient, runningTripId]);
 
-  // Trip auto-stop: backend emits trip://stopped → refetch trips, clear active.
+  // Focus auto-stop: backend emits trip://stopped → refresh list/detail and
+  // announce a human label. Never clear focusTripId: the final summary stays
+  // open (or the closed row stays selected).
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     onTripStopped(({ trip_id, reason }) => {
       queryClient.invalidateQueries({ queryKey: ["trips"] });
       queryClient.invalidateQueries({ queryKey: ["trip", trip_id] });
-      const cur = useStore.getState().activeTripId;
-      if (cur === trip_id) useStore.getState().setActiveTripId(null);
-      setScanMsg(`Focus stopped (${reason})`);
+      const label = stopReasonLabel(reason);
+      setFocusMsg({ text: `Focus session closed — ${label}.`, tone: "info" });
+      setScanMsg(`Focus session closed · ${label}`);
     }).then((u) => {
       unlisten = u;
     });
@@ -358,22 +420,36 @@ export default function App() {
     }
   };
 
-  const exportTrip = async (tripId: string, name: string) => {
+  // Opening a session is a fresh context: drop any previous stop notice.
+  const openFocusTrip = (tripId: string) => {
+    setFocusMsg(null);
+    setFocusTripId(tripId);
+  };
+
+  // Manual stop emits no backend event, so invalidate both caches here and
+  // surface the result on the Focus page itself.
+  const stopRunningTrip = async (tripId: string, name: string, fromBanner = false) => {
+    setStoppingId(tripId);
+    setFocusMsg(null);
     try {
-      const detail = await cmdGetTrip(tripId);
-      const blob = new Blob([JSON.stringify(detail, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `tokentracker-trip-${tripId}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 5000);
-      setScanMsg(`Exported ${name}`);
+      await cmdStopTrip(tripId);
     } catch (e) {
-      setScanMsg(`Export failed: ${String(e)}`);
+      setStoppingId(null);
+      const text = `Couldn't stop the focus session: ${e instanceof Error ? e.message : String(e)}`;
+      setFocusMsg({ text, tone: "error" });
+      if (fromBanner) setScanMsg(text);
+      return;
     }
+    // Cache refresh is best-effort: the stop already succeeded, so a failed
+    // refetch must not be reported as a failed stop.
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["trips"] }),
+      queryClient.invalidateQueries({ queryKey: ["trip", tripId] }),
+    ]).catch(() => {});
+    setStoppingId(null);
+    const text = `Focus session closed. The final summary is ready.`;
+    setFocusMsg({ text, tone: "info" });
+    if (fromBanner) setScanMsg(text);
   };
 
   const applyPreset = (days: number) => {
@@ -419,6 +495,23 @@ export default function App() {
     projects: snap?.projects.length ?? 0,
     models: snap?.models.length ?? 0,
   };
+
+  // Focus-local status line: manual stops never emit a backend event, so this
+  // is the only visible confirmation that the stop landed.
+  const focusStatus = focusMsg ? (
+    <p
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "rounded-2xl border px-4 py-2.5 text-[13px]",
+        focusMsg.tone === "error"
+          ? "border-red-200 bg-red-50 text-red-700"
+          : "border-[#0070eb]/25 bg-[#0070eb]/[0.06] text-[#0058bc]",
+      )}
+    >
+      {focusMsg.text}
+    </p>
+  ) : null;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -506,7 +599,7 @@ export default function App() {
                         ? String(counts.projects)
                         : n.id === "models" && counts.models > 0
                           ? String(counts.models)
-                          : n.id === "trips" && activeTripId
+                          : n.id === "trips" && runningTripId
                             ? "LIVE"
                             : null;
                   return (
@@ -795,10 +888,52 @@ export default function App() {
           </div>
           </div>
 
-          {/* Global live focus banner — NOT rendered on the Focus page itself */}
-          {activeTripId && page !== "trips" && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}>
-              <TripView tripId={activeTripId} />
+          {/* Compact live spotlight — never a full TripView on other pages */}
+          {runningTrip && page !== "trips" && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
+            >
+              <div className="rounded-2xl border border-hairline bg-card p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-[0.8rem] border border-primary/15 bg-primary/[0.06] px-3 py-2">
+                  <span
+                    aria-hidden="true"
+                    className="breathe h-2 w-2 shrink-0 rounded-full bg-primary"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">
+                      Focus session running
+                    </p>
+                    <p className="truncate text-[13px] font-semibold text-ink">
+                      {runningTrip.name}
+                    </p>
+                  </div>
+                  <span className="tnum shrink-0 whitespace-nowrap font-mono text-[11px] text-ink-2">
+                    {runningElapsed}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openFocusTrip(runningTrip.trip_id);
+                      setPage("trips");
+                    }}
+                    className="inline-flex min-h-[32px] shrink-0 items-center gap-1 rounded-full border border-primary/25 bg-card px-3 py-1 text-[12px] font-semibold text-primary transition-colors hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-card active:scale-[0.97] motion-reduce:transition-none"
+                  >
+                    Open
+                    <CaretRight size={12} weight="bold" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void stopRunningTrip(runningTrip.trip_id, runningTrip.name, true)}
+                    disabled={stoppingId === runningTrip.trip_id}
+                    className="inline-flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-full border border-[#C81E1E]/30 bg-[#C81E1E]/[0.07] px-3 py-1 text-[12px] font-semibold text-[#9B1C1C] transition-colors hover:bg-[#C81E1E]/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C81E1E]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-card active:scale-[0.97] disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none"
+                  >
+                    <StopCircle size={13} weight="bold" aria-hidden="true" />
+                    {stoppingId === runningTrip.trip_id ? "Stopping…" : "Stop"}
+                  </button>
+                </div>
+              </div>
             </motion.div>
           )}
 
@@ -860,7 +995,21 @@ export default function App() {
 
               {page === "trips" && (
                 <div className="space-y-4">
-                  {/* Focus hero: the bench where a block is zeroed */}
+                  {focusTrip ? (
+                    <>
+                      {focusStatus}
+                      <TripView
+                        tripId={focusTrip.trip_id}
+                        live={!focusTrip.stopped_at}
+                        summary={focusTrip}
+                        onBack={() => setFocusTripId(null)}
+                        onShare={() => setShareTripId(focusTrip.trip_id)}
+                      />
+                    </>
+                  ) : (
+                    <>
+                  {focusStatus}
+                  {/* Focus hero: the workspace where a session starts */}
                   <motion.div
                     initial={{ opacity: 0, y: 24 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -885,35 +1034,90 @@ export default function App() {
                           </span>
                           <div className="min-w-0">
                             <p className="inline-flex items-center whitespace-nowrap rounded-full border border-[#e5e5ea] bg-white px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-ink-3">
-                              Trip meter bench
+                              Focus session
                             </p>
                             <h3 className="font-display mt-1.5 text-xl font-semibold tracking-tight text-[#1a1b1f]">
-                              Focus sessions
+                              Focus workspace
                             </h3>
                             <p className="mt-0.5 max-w-md text-[13px] leading-relaxed text-ink-3">
-                              Zero the meter, work the block, read the exact delta.
+                              Start from baseline, work the session, read the exact delta.
                             </p>
                           </div>
                         </div>
                         <button
-                          onClick={() => setTripModal(true)}
+                          onClick={() => {
+                            if (runningTrip) {
+                              openFocusTrip(runningTrip.trip_id);
+                              setPage("trips");
+                            } else {
+                              setTripModal(true);
+                            }
+                          }}
                           className="group inline-flex min-h-[40px] items-center gap-2 rounded-full bg-[#0058bc] py-2 pl-5 pr-2 text-sm font-semibold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_12px_28px_-12px_rgba(0,88,188,0.55)] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#0067d6] active:scale-[0.97] active:bg-[#004da6] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                         >
-                          New focus session
+                          {runningTrip ? "Open running session" : "New focus session"}
                           <span
                             aria-hidden
                             className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:scale-105 group-active:scale-90"
                           >
-                            <Plus size={14} weight="light" />
+                            {runningTrip ? (
+                              <CaretRight size={14} weight="bold" />
+                            ) : (
+                              <Plus size={14} weight="light" />
+                            )}
                           </span>
                         </button>
                       </div>
                     </div>
                   </motion.div>
 
-                  {/* Active trip or composed empty state */}
-                  {activeTripId ? (
-                    <TripView tripId={activeTripId} />
+                  {/* Live resume strip + composed empty state */}
+                  {runningTrip ? (
+                    <div className="rounded-[2rem] bg-white p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)] ring-1 ring-[#e5e5ea]">
+                      <div className="relative overflow-hidden rounded-[calc(2rem-0.375rem)] border border-[#0070eb]/20 bg-[#faf9fe] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute -top-20 right-6 h-40 w-64 rounded-full bg-[#0070eb]/[0.08] blur-3xl"
+                        />
+                        <div className="relative flex flex-wrap items-center gap-x-4 gap-y-3 p-4 sm:p-5">
+                          <span
+                            aria-hidden="true"
+                            className="breathe h-2.5 w-2.5 shrink-0 rounded-full bg-[#0070eb]"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#0058bc]">
+                              Focus session running
+                            </p>
+                            <p className="mt-0.5 truncate text-sm font-semibold text-[#1a1b1f]">
+                              {runningTrip.name}
+                            </p>
+                          </div>
+                          <span
+                            className="tnum shrink-0 whitespace-nowrap rounded-full border border-[#e5e5ea] bg-white px-2.5 py-1 font-mono text-[11px] text-[#414755]"
+                            title="Elapsed focus time"
+                          >
+                            {runningElapsed}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openFocusTrip(runningTrip.trip_id)}
+                            className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-full border border-[#0070eb]/40 bg-[#0070eb]/[0.08] px-4 py-1.5 text-[13px] font-semibold text-[#0058bc] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#0070eb]/[0.14] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-[0.97] motion-reduce:transition-none"
+                          >
+                            Open
+                            <CaretRight size={12} weight="bold" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void stopRunningTrip(runningTrip.trip_id, runningTrip.name)}
+                            disabled={stoppingId === runningTrip.trip_id}
+                            className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full border border-[#C81E1E]/35 bg-[#C81E1E]/[0.07] px-4 py-1.5 text-[13px] font-semibold text-[#9B1C1C] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#C81E1E]/[0.12] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C81E1E]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-[0.97] disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none"
+                          >
+                            <StopCircle size={14} weight="bold" aria-hidden="true" />
+                            {stoppingId === runningTrip.trip_id ? "Stopping…" : "Stop"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   ) : (
                     <div className="rounded-[2rem] bg-white p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)] ring-1 ring-[#e5e5ea]">
                       <div className="flex flex-col items-center rounded-[calc(2rem-0.375rem)] border border-dashed border-[#d4d4dc] bg-[#faf9fe] p-10 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
@@ -922,11 +1126,11 @@ export default function App() {
                             <Timer size={22} weight="light" className="text-ink-3" />
                           </span>
                         </span>
-                        <p className="mt-3 text-sm font-medium text-[#414755]">No active focus</p>
+                        <p className="mt-3 text-sm font-medium text-[#414755]">No active focus session</p>
                         <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-ink-3">
                           Start one to watch the token delta accumulate while you
                           work. Scope it to every client or a few, then stop it by
-                          hand, after a time, or when idle.
+                          hand or with an auto-stop.
                         </p>
                         <button
                           onClick={() => setTripModal(true)}
@@ -956,33 +1160,69 @@ export default function App() {
                       <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] px-4 py-3 sm:px-5">
                         <h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#1a1b1f]">
                           <Timer size={14} weight="light" className="shrink-0 text-[#0058bc]/70" aria-hidden />
-                          Logbook
+                          Focus logbook
                         </h3>
                         <span className="tnum shrink-0 whitespace-nowrap rounded-full border border-[#e5e5ea] bg-[#f4f3f8] px-2 py-0.5 font-mono text-[11px] text-[#414755]">
-                          {(trips ?? []).length} recorded
+                          {trips.length} recorded
                         </span>
                       </div>
-                    {(trips ?? []).length === 0 ? (
+                    {tripsPending && trips.length === 0 ? (
+                      <div
+                        className="space-y-2 p-4"
+                        aria-busy="true"
+                        aria-label="Loading focus logbook"
+                      >
+                        {Array.from({ length: 3 }).map((_, i) => (
+                          <div key={i} className="skeleton h-14 w-full rounded-xl" />
+                        ))}
+                      </div>
+                    ) : tripsError && trips.length === 0 ? (
+                      <div className="flex min-h-28 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
+                        <p className="text-sm font-medium text-[#414755]">
+                          Couldn&apos;t load the focus logbook.
+                        </p>
+                        <p className="max-w-sm text-[12px] leading-relaxed text-ink-3">
+                          Focus sessions couldn&apos;t be read. Retry to load them again.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void refetchTrips()}
+                          disabled={tripsFetching}
+                          className="mt-1 inline-flex min-h-[34px] items-center gap-1.5 rounded-full border border-[#0070eb]/40 bg-[#0070eb]/[0.08] px-4 py-1.5 text-[12px] font-semibold text-[#0058bc] transition-colors hover:bg-[#0070eb]/[0.14] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-[0.97] disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none"
+                        >
+                          <ArrowsClockwise
+                            size={13}
+                            weight="bold"
+                            className={tripsFetching ? "animate-spin motion-reduce:animate-none" : undefined}
+                            aria-hidden="true"
+                          />
+                          Retry
+                        </button>
+                      </div>
+                    ) : trips.length === 0 ? (
                       <div className="flex h-28 items-center justify-center px-4 text-sm text-ink-3">
-                        Nothing logged yet. Finished blocks land here.
+                        Nothing logged yet. Finished focus sessions land here.
                       </div>
                     ) : (
                       <ol className="divide-y divide-[#e5e5ea]">
-                        {[...(trips ?? [])]
+                        {[...trips]
                           .sort(
                             (a, b) =>
                               new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
                           )
                           .map((t, i) => {
-                            const live = !t.stopped_at;
+                            const live = t.active || !t.stopped_at;
                             const dur = t.stopped_at
                               ? fmtDurationMs(
                                   new Date(t.stopped_at).getTime() -
                                     new Date(t.started_at).getTime(),
                                 )
-                              : fmtDurationMs(Date.now() - new Date(t.started_at).getTime());
+                              : fmtDurationMs(clockNow - new Date(t.started_at).getTime());
                             const reason = t.stop_reason
-                              ? STOP_REASON_PILL[t.stop_reason]
+                              ? {
+                                  label: stopReasonLabel(t.stop_reason),
+                                  cls: STOP_REASON_CLS[t.stop_reason] ?? STOP_REASON_CLS.manual,
+                                }
                               : null;
                             const scopeText =
                               t.scope.kind === "all"
@@ -1008,12 +1248,15 @@ export default function App() {
                               >
                                 <div className="min-w-0 sm:min-w-[14rem] sm:flex-1">
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                    <p
-                                      className="min-w-[6rem] flex-1 truncate text-sm font-semibold text-[#1a1b1f]"
-                                      title={t.name}
+                                    <button
+                                      type="button"
+                                      onClick={() => openFocusTrip(t.trip_id)}
+                                      title={`Open ${t.name}`}
+                                      aria-label={`Open focus session ${t.name}`}
+                                      className="min-w-[6rem] flex-1 truncate rounded-md text-left text-sm font-semibold text-[#1a1b1f] transition-colors duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-[#0058bc] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none"
                                     >
                                       {t.name}
-                                    </p>
+                                    </button>
                                     {live ? (
                                       <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-[#0070eb]/30 bg-[#0070eb]/[0.08] px-2 py-0.5 font-mono text-[11px] text-[#0058bc]">
                                         <span className="breathe h-1.5 w-1.5 shrink-0 rounded-full bg-[#0070eb]" aria-hidden="true" />
@@ -1054,10 +1297,26 @@ export default function App() {
                                 <div className="flex shrink-0 items-center gap-1 sm:ml-auto sm:justify-end">
                                   <button
                                     type="button"
-                                    title="Export session metrics"
-                                    aria-label={`Export ${t.name} as JSON`}
-                                    onClick={() => void exportTrip(t.trip_id, t.name)}
-                                    className="rounded-md p-1.5 text-ink-3 opacity-80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-black/[0.04] hover:text-[#1a1b1f] group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+                                    title="Open focus session"
+                                    aria-label={`Open ${t.name}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openFocusTrip(t.trip_id);
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold text-[#0058bc] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#0070eb]/[0.08] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0070eb]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:scale-[0.97] motion-reduce:transition-none"
+                                  >
+                                    Open
+                                    <CaretRight size={12} weight="bold" aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Share focus session"
+                                    aria-label={`Share ${t.name}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShareTripId(t.trip_id);
+                                    }}
+                                    className="rounded-md p-1.5 text-ink-3 opacity-80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-black/[0.04] hover:text-[#1a1b1f] group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[#0070eb]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none"
                                   >
                                     <ShareNetwork size={14} weight="light" aria-hidden="true" />
                                   </button>
@@ -1067,16 +1326,18 @@ export default function App() {
                           })}
                       </ol>
                     )}
-                    {(trips ?? []).length > 0 && (
+                    {trips.length > 0 && (
                       <div className="border-t border-[#e5e5ea] px-4 py-3 sm:px-5">
                         <p className="text-xs text-ink-3" role="status">
-                          Showing all {(trips ?? []).length} recorded focus{" "}
-                          {(trips ?? []).length === 1 ? "session" : "sessions"}
+                          {trips.length} recorded focus{" "}
+                          {trips.length === 1 ? "session" : "sessions"}
                         </p>
                       </div>
                     )}
                     </div>
                   </motion.section>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1100,7 +1361,21 @@ export default function App() {
       </main>
       </div>
 
-      {tripModal && <TripSetupModal onClose={() => setTripModal(false)} allClients={knownClients} />}
+      {tripModal && (
+        <TripSetupModal
+          onClose={() => setTripModal(false)}
+          allClients={knownClients}
+          running={!!runningTrip}
+          onStarted={(trip) => {
+            openFocusTrip(trip.trip_id);
+            setPage("trips");
+            queryClient.invalidateQueries({ queryKey: ["trips"] });
+          }}
+        />
+      )}
+      {shareTripId && (
+        <SessionShareModal tripId={shareTripId} onClose={() => setShareTripId(null)} />
+      )}
       <UpdateToasts updater={updater} />
     </div>
     </MotionConfig>

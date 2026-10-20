@@ -120,14 +120,40 @@ export interface TripDTO {
   stop: StopMode;
   started_at: string;
   stopped_at: string | null;
-  stop_reason: "manual" | "after" | "idle" | null;
+  stop_reason: string | null;
   resumed?: boolean;
+  /** True while the backend has this trip as the running session. */
+  active: boolean;
+}
+
+export interface TripDeltaDTO {
+  tokens: number;
+  cost: number;
+  messages: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  reasoning: number;
+}
+
+export interface TripClientDTO {
+  client: string;
+  tokens: number;
+  cost: number;
+  messages: number;
 }
 
 export interface TripDetailDTO {
   trip: TripDTO;
   baseline: { totals: { tokens: number; cost: number }; by_model: ModelRowDTO[] };
-  deltas: { tokens: number; cost: number; messages: number };
+  deltas: TripDeltaDTO;
+  models: ModelRowDTO[];
+  clients: TripClientDTO[];
+  sessions: number;
+  duration_ms: number;
+  top_model: string | null;
+  peak_day: DailyDTO | null;
   daily: DailyDTO[];
 }
 
@@ -226,7 +252,10 @@ export async function cmdLiveStatus(): Promise<LiveStatusDTO> {
 }
 
 export async function cmdListTrips(): Promise<TripDTO[]> {
-  return safeInvoke<TripDTO[]>("list_trips", {}, []);
+  // Browser dev bridge has no trip store; desktop must surface IPC errors so
+  // the logbook can show a retry state instead of a false empty list.
+  if (!hasTauriIpc()) return [];
+  return invoke<TripDTO[]>("list_trips");
 }
 
 export async function cmdStartTrip(
@@ -238,18 +267,21 @@ export async function cmdStartTrip(
 }
 
 export async function cmdStopTrip(tripId: string): Promise<TripDTO> {
-  return invoke<TripDTO>("stop_trip", { trip_id: tripId });
+  // Tauri v2 camelCases command arguments; the Rust parameter is `trip_id`,
+  // so it must arrive as `tripId`.
+  return invoke<TripDTO>("stop_trip", { tripId });
 }
 
 export async function cmdGetTrip(tripId: string): Promise<TripDetailDTO> {
-  return invoke<TripDetailDTO>("get_trip", { trip_id: tripId });
+  // Same Tauri v2 argument mapping as stop_trip.
+  return invoke<TripDetailDTO>("get_trip", { tripId });
 }
 
-export async function onUsageUpdated(cb: (at: string) => void): Promise<() => void> {
+export async function onUsageUpdated(cb: (payload?: unknown) => void): Promise<() => void> {
   try {
     const { listen } = await import("@tauri-apps/api/event");
-    const unlisten = await listen<{ at: string; kind: string }>("usage://updated", (e) => {
-      cb(e.payload.at);
+    const unlisten = await listen<unknown>("usage://updated", (e) => {
+      cb(e.payload);
     });
     return unlisten;
   } catch {
@@ -294,7 +326,16 @@ export function useLiveStatus() {
 }
 
 export function useTrips() {
-  return useQuery({ queryKey: ["trips"], queryFn: cmdListTrips, staleTime: 15_000 });
+  return useQuery({
+    queryKey: ["trips"],
+    queryFn: cmdListTrips,
+    staleTime: 5_000,
+    // Keep the live session / logbook fresh while a session is running.
+    refetchInterval: (query) => {
+      const trips = query.state.data;
+      return trips?.some((t) => t.active || !t.stopped_at) ? 15_000 : false;
+    },
+  });
 }
 
 export function useTripDetail(tripId: string | null, live: boolean) {
@@ -302,6 +343,9 @@ export function useTripDetail(tripId: string | null, live: boolean) {
     queryKey: ["trip", tripId],
     queryFn: () => cmdGetTrip(tripId as string),
     enabled: !!tripId,
+    staleTime: 5_000,
+    placeholderData: (prev) => prev,
+    retry: 1,
     refetchInterval: live ? 15_000 : false,
   });
 }
