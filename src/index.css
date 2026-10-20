@@ -82,17 +82,6 @@ body::after {
   font-variant-numeric: tabular-nums;
 }
 
-/* Display metric — Outfit figures, column-stable, for hero readouts. */
-@layer components {
-  .display-num {
-    font-family: var(--font-display);
-    font-variant-numeric: tabular-nums;
-    font-feature-settings: "tnum";
-    letter-spacing: -0.02em;
-    line-height: 1;
-  }
-}
-
 /* Light instrument surfaces — pure-white cards, hairline borders, soft diffused lift. */
 .cockpit-panel {
   background: #ffffff;

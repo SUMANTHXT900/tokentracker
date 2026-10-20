@@ -122,6 +122,12 @@ const UNIT_WORD: Record<string, string> = {
   B: "Billion",
 };
 
+/** Footer money: keep sub-cent values visible instead of rounding to $0.00. */
+function fmtSpend(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "$0.00";
+  return n > 0 && n < 0.01 ? fmtCostPrecise(n) : fmtCost(n);
+}
+
 function HeroFigure({
   num,
   fraction,
@@ -431,7 +437,7 @@ export default function KpiCards({
               {freeSpend
                 ? "No metered spend"
                 : activeDays > 0
-                  ? `${fmtCost(avgPerDay)} / active day`
+                  ? `${fmtSpend(avgPerDay)} / active day`
                   : "no activity yet"}
             </span>
           </div>
@@ -453,7 +459,7 @@ export default function KpiCards({
             title="Peak day cost and its share of total spend"
           >
             <span>
-              {peak && (peak?.cost ?? 0) > 0 ? `Peak ${fmtCost(peak.cost)}` : "No spend peak"}
+              {peak && (peak?.cost ?? 0) > 0 ? `Peak ${fmtSpend(peak.cost)}` : "No spend peak"}
             </span>
             <span>{peakShare > 0 ? `${fmtPct(peakShare)} of spend` : "—"}</span>
           </div>
@@ -521,7 +527,7 @@ export default function KpiCards({
           <div className="flex items-center justify-between font-sans text-[11px]">
             <span className="text-[#414755]">Avg cost / session</span>
             <span className="tnum font-mono text-[11px] font-semibold text-[#1b1b1d]">
-              {fmtCost(avgCostPerSession)}
+              {fmtSpend(avgCostPerSession)}
             </span>
           </div>
           <p className="tnum font-mono text-[10px] text-ink-3">

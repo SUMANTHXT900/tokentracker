@@ -35,6 +35,7 @@ export function fmtCost(n: number): string {
 /** High-precision cost for session/message rows: $0.0042 when < $0.10, else $1.24 */
 export function fmtCostPrecise(n: number): string {
   if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return "$0.00";
+  if (n < 0.00005) return "<$0.0001";
   if (n < 0.01) return `$${n.toFixed(4)}`;
   if (n < 1) return `$${n.toFixed(3)}`;
   return fmtCost(n);
@@ -42,11 +43,6 @@ export function fmtCostPrecise(n: number): string {
 
 export function splitCost(n: number): { num: string; unit: "" } {
   return { num: fmtCost(n), unit: "" };
-}
-
-/** Compact form for chart axes — same scale as fmtTokens. */
-export function fmtCompact(n: number): string {
-  return fmtTokens(n);
 }
 
 /** frac is 0..1 → e.g. 12.3% */

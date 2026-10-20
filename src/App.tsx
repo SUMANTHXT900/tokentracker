@@ -265,7 +265,7 @@ export default function App() {
     setFocusTripId,
   } = useStore();
   const filters = { clients, since, until };
-  const { data: snap, refetch, isFetching, isPending } = useSnapshot(filters);
+  const { data: snap, isFetching, isPending } = useSnapshot(filters);
   // Client-scope stats must describe the current date range even while a filter
   // hides other clients, so this second query is deliberately unfiltered. When
   // no client is selected it shares the main query key and costs nothing.
@@ -472,7 +472,9 @@ export default function App() {
     try {
       const r = await cmdRescan();
       setScanMsg(`${r.scanned_files.toLocaleString()} records · ${r.took_ms}ms`);
-      refetch();
+      // Invalidate every usage observer, including the unfiltered client-stats
+      // query, so a manual scan cannot leave the dropdown showing old numbers.
+      await queryClient.invalidateQueries({ queryKey: ["usage"] });
     } catch (e) {
       setScanMsg(`Scan failed: ${String(e)}`);
     } finally {
@@ -877,17 +879,19 @@ export default function App() {
                 stats={clientStats}
                 onChange={setClients}
               />
-              <DateRangePicker
-                since={since}
-                until={until}
-                presetDays={presetDays}
-                onPreset={applyPreset}
-                onCustom={(a, b) => {
-                  setPresetDays(null);
-                  setRange(a, b);
-                }}
-                onClear={clearRange}
-              />
+              {page !== "usage" && (
+                <DateRangePicker
+                  since={since}
+                  until={until}
+                  presetDays={presetDays}
+                  onPreset={applyPreset}
+                  onCustom={(a, b) => {
+                    setPresetDays(null);
+                    setRange(a, b);
+                  }}
+                  onClear={clearRange}
+                />
+              )}
             </div>
           </header>
 

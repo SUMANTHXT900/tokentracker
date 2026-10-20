@@ -138,6 +138,7 @@ export default function DateRangePicker({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const calendarRef = useRef<HTMLDivElement>(null);
   const dialogId = useId();
   const titleId = useId();
   const today = startOfDay(new Date());
@@ -315,7 +316,7 @@ export default function DateRangePicker({
           role="dialog"
           aria-modal="false"
           aria-labelledby={titleId}
-          className="fixed left-3 right-3 top-20 z-50 flex max-h-[calc(100dvh-6rem)] flex-col overflow-hidden rounded-2xl border border-hairline bg-card shadow-[0_24px_64px_-20px_rgba(16,24,40,0.35)] sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-[min(46rem,calc(100dvh-7rem))] sm:w-[min(680px,calc(100vw-2rem))]"
+          className="fixed left-3 right-3 top-20 z-50 flex max-h-[calc(100dvh-6rem)] flex-col overflow-hidden rounded-2xl border border-hairline bg-card shadow-[0_24px_64px_-20px_rgba(16,24,40,0.35)] lg:absolute lg:left-auto lg:right-0 lg:top-full lg:mt-2 lg:max-h-[min(46rem,calc(100dvh-7rem))] lg:w-[min(680px,calc(100vw-2rem))]"
         >
           <h2 id={titleId} className="sr-only">
             Choose a time range
@@ -390,7 +391,7 @@ export default function DateRangePicker({
                 </button>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div ref={calendarRef} className="grid gap-3 sm:grid-cols-2">
                 <div className="hidden sm:block">
                   <MonthGrid
                     month={viewMonth}
@@ -398,6 +399,7 @@ export default function DateRangePicker({
                     end={draftEnd}
                     today={today}
                     onPick={chooseDay}
+                    calendarRef={calendarRef}
                   />
                 </div>
                 <MonthGrid
@@ -406,6 +408,7 @@ export default function DateRangePicker({
                   end={draftEnd}
                   today={today}
                   onPick={chooseDay}
+                  calendarRef={calendarRef}
                 />
               </div>
 
@@ -449,14 +452,15 @@ function MonthGrid({
   end,
   today,
   onPick,
+  calendarRef,
 }: {
   month: Date;
   start: Date | null;
   end: Date | null;
   today: Date;
   onPick: (d: Date) => void;
+  calendarRef: React.RefObject<HTMLDivElement>;
 }) {
-  const gridRef = useRef<HTMLDivElement>(null);
   const days = eachDayOfInterval({
     start: startOfWeek(startOfMonth(month), { weekStartsOn: 1 }),
     end: endOfWeek(endOfMonth(month), { weekStartsOn: 1 }),
@@ -488,10 +492,13 @@ function MonthGrid({
         e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" ? -7 : 7;
       next.setDate(current.getDate() + delta);
     }
-    const target = gridRef.current?.querySelector<HTMLButtonElement>(
+    const candidates = calendarRef.current?.querySelectorAll<HTMLButtonElement>(
       `[data-date="${ymd(next)}"]`,
     );
-    if (target && !target.disabled) {
+    const target = [...(candidates ?? [])].find(
+      (el) => !el.disabled && el.getClientRects().length > 0,
+    );
+    if (target) {
       e.preventDefault();
       target.focus();
     }
@@ -502,7 +509,7 @@ function MonthGrid({
       <p className="mb-1 hidden text-center text-[12px] font-semibold text-ink sm:block">
         {format(month, "MMMM")}
       </p>
-      <div ref={gridRef} onKeyDown={onGridKeyDown} className="grid grid-cols-7 gap-y-0.5 text-center">
+      <div onKeyDown={onGridKeyDown} className="grid grid-cols-7 gap-y-0.5 text-center">
         {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
           <span key={`${d}-${i}`} className="py-0.5 font-mono text-[9px] text-ink-3" aria-hidden>
             {d}
@@ -516,10 +523,11 @@ function MonthGrid({
           const inBand = !!start && !!end && isAfter(d, start) && isBefore(d, end);
           const isToday = isSameDay(d, today);
           const disabled = isAfter(d, today);
-          const unavailable = disabled || outside;
+          const unavailable = disabled;
           const focusable =
-            selected ||
-            (!hasSelectedInMonth && !!defaultFocusDay && isSameDay(d, defaultFocusDay));
+            !outside &&
+            (selected ||
+              (!hasSelectedInMonth && !!defaultFocusDay && isSameDay(d, defaultFocusDay)));
           const rangeHint =
             isStart && isEnd
               ? ", selected day"

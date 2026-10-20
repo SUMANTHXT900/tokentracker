@@ -177,10 +177,11 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
       if (parsed && (!first || parsed < first)) first = parsed;
     }
     const sinceDay = since ? parseIsoDay(since) : null;
-    // Ignore stale rows from a previous query that predate the new `since`;
-    // when the fresh rows start later than `since`, start at the data instead
-    // of padding the left edge with empty weeks.
-    const anchor = sinceDay && (!first || first < sinceDay) ? sinceDay : first;
+    // An explicit range is the contract: a 90d filter must render 90 days even
+    // if the selected client only has activity in the last week. All-time (no
+    // since) falls back to the first recorded day so old history doesn't leave
+    // a year of empty cells.
+    const anchor = sinceDay ?? first;
     let start: Date;
     if (anchor) {
       start = mondayOf(anchor);

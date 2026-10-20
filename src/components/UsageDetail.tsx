@@ -999,6 +999,8 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
   const freePeriod = cost <= 0 && tokens > 0;
   const costValue =
     freePeriod ? "Free" : cost > 0 && cost < 0.01 ? fmtCostPrecise(aCost) : fmtCost(aCost);
+  const avgCostLabel =
+    avgCost > 0 && avgCost < 0.01 ? fmtCostPrecise(avgCost) : fmtCost(avgCost);
   const costUnit = freePeriod ? "" : "USD";
   const syncing = (current.isFetching || previous.isFetching) && !loading;
 
@@ -1109,7 +1111,7 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
                   icon: <CurrencyDollar size={13} weight="bold" />,
                   value: costValue,
                   unit: costUnit,
-                  sub: sessionsCount > 0 ? `${fmtCost(avgCost)} avg / session` : "no sessions",
+                  sub: sessionsCount > 0 ? `${avgCostLabel} avg / session` : "no sessions",
                 },
                 {
                   label: "Messages",
