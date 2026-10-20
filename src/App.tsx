@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
   ArrowsClockwise,
@@ -294,6 +294,16 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [presetDays, setPresetDays] = useState<number | null>(null);
   const updater = useUpdater();
+  // Release-notes popup "Download now": land on Settings → App updates so the
+  // user sees the progress UI first, then start the download there.
+  const goDownloadUpdate = useCallback(() => {
+    updater.closeNotes();
+    setPage("settings");
+    window.setTimeout(() => {
+      document.getElementById("app-updates")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      void updater.startDownload();
+    }, 650);
+  }, [updater.closeNotes, updater.startDownload, setPage]);
   const queryClient = useQueryClient();
 
   // One-second clock only while a session runs: resume card / banner elapsed.
@@ -1461,7 +1471,7 @@ export default function App() {
       {shareTripId && (
         <SessionShareModal tripId={shareTripId} onClose={() => setShareTripId(null)} />
       )}
-      <UpdateToasts updater={updater} />
+      <UpdateToasts updater={updater} onDownloadNow={goDownloadUpdate} />
     </div>
     </MotionConfig>
   );
@@ -2476,8 +2486,9 @@ function SettingsView({
         style={{ animationDelay: "260ms" }}
       >
       <section
+        id="app-updates"
         aria-label="App updates"
-        className="rounded-[20px] border border-[#e5e5ea] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+        className="scroll-mt-4 rounded-[20px] border border-[#e5e5ea] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
       >
         <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e5e5ea] bg-[#f4f3f8] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#414755]">
           <ArrowsClockwise size={11} weight="bold" className="text-[#0070eb]" aria-hidden />
@@ -2545,15 +2556,74 @@ function SettingsView({
               {updater.checkError ?? "Couldn't reach the update server. Check your connection and try again."}
             </p>
           )}
+          {updater.download.kind === "failed" && (
+            <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-2.5 text-[11px] text-red-700">
+              {updater.download.message}
+            </p>
+          )}
           {updater.checkState.kind === "uptodate" && (
             <p role="status" className="tnum px-1 font-mono text-[11px] text-ink-3">
               You&apos;re up to date.
             </p>
           )}
           {updater.available && (
-            <p role="status" className="rounded-xl border border-[#0070eb]/25 bg-[#0070eb]/10 p-2.5 text-[11px] text-[#0058bc]">
-              v{updater.available.version} is ready — use the update notification to download and install it.
-            </p>
+            <div
+              role="status"
+              className="rounded-xl border border-[#0070eb]/25 bg-[#0070eb]/10 p-2.5"
+            >
+              <p className="text-[11px] font-semibold text-[#0058bc]">
+                v{updater.available.version} is ready — download and install it right here.
+              </p>
+              {updater.available.body?.trim() && (
+                <>
+                  <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#0058bc]/80">
+                    What&apos;s new
+                  </p>
+                  <div className="tnum mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[#0070eb]/20 bg-white p-2.5 text-[11px] leading-relaxed text-[#414755]">
+                    {updater.available.body}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {updater.download.kind === "working" && (
+            <div role="status" aria-label={updater.download.phase === "installing" ? "Finalizing install" : "Downloading update"}>
+              <div className="tnum flex items-center justify-between px-1 font-mono text-[11px] text-ink-3">
+                <span>{updater.download.phase === "installing" ? "Finalizing install…" : "Downloading update…"}</span>
+                <span>
+                  {updater.download.total != null
+                    ? `${fmtBytes(updater.download.bytes)} of ${fmtBytes(updater.download.total)}`
+                    : `${fmtBytes(updater.download.bytes)} so far`}
+                </span>
+              </div>
+              <div
+                className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#f4f3f8]"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={updater.download.total ?? 100}
+                aria-valuenow={
+                  updater.download.total != null
+                    ? Math.min(updater.download.bytes, updater.download.total)
+                    : undefined
+                }
+              >
+                <div
+                  className={cn(
+                    "h-full rounded-full bg-[#0070eb] transition-[width] duration-300 ease-out motion-reduce:transition-none",
+                    updater.download.total == null || updater.download.phase === "installing"
+                      ? "w-1/3 animate-pulse"
+                      : "",
+                  )}
+                  style={
+                    updater.download.total != null && updater.download.phase !== "installing"
+                      ? {
+                          width: `${Math.min(100, (updater.download.bytes / Math.max(1, updater.download.total)) * 100)}%`,
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
           )}
           <p className="px-1 text-[11px] leading-relaxed text-ink-3">
             Icons look stale after updating? Unpin and re-pin the taskbar icon, or run{" "}
@@ -2587,13 +2657,13 @@ function SettingsView({
               />
             </span>
           </button>
-          {updater.available && !updater.restartPending && updater.download.kind === "idle" && (
+          {updater.available && !updater.restartPending && (updater.download.kind === "idle" || updater.download.kind === "failed") && (
             <button
               onClick={() => void updater.startDownload()}
-              aria-label={`Download update v${updater.available.version}`}
+              aria-label={updater.download.kind === "failed" ? `Retry downloading update v${updater.available.version}` : `Download update v${updater.available.version}`}
               className="w-full rounded-xl bg-[#0070eb] py-2 text-[13px] font-semibold text-white shadow-sm transition-all duration-300 ease-out hover:bg-[#0058bc] active:scale-[0.98] motion-reduce:transition-none"
             >
-              Download update
+              {updater.download.kind === "failed" ? "Retry download" : "Download update"}
             </button>
           )}
           {(updater.restartPending || updater.download.kind === "ready") && (

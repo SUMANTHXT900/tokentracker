@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowsClockwise, CheckCircle, DownloadSimple, X } from "@phosphor-icons/react";
+import { DownloadSimple } from "@phosphor-icons/react";
 import { check } from "@tauri-apps/plugin-updater";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -55,7 +55,10 @@ export function useUpdater() {
   const [checkState, setCheckState] = useState<UpdateCheckState>({ kind: "idle" });
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [download, setDownload] = useState<UpdateDownloadState>({ kind: "idle" });
-  const [hideWorking, setHideWorking] = useState(false);
+  /** Toast announcer hidden for this session; the offer itself stays in Settings. */
+  const [snoozed, setSnoozed] = useState(false);
+  /** Release-notes popup visibility. */
+  const [notesOpen, setNotesOpen] = useState(false);
   /** Version successfully installed this session but not yet restarted into. */
   const [installedVersion, setInstalledVersion] = useState<string | null>(null);
   const installedVersionRef = useRef<string | null>(null);
@@ -99,8 +102,9 @@ export function useUpdater() {
         });
         if (!activeDownloadRef.current) {
           setDownload({ kind: "idle" });
-          setHideWorking(false);
         }
+        // A fresh offer un-snoozes the announcer.
+        setSnoozed(false);
         // Re-offered version we already installed this session = the binary
         // is simply still old until restart — pending, not a fresh offer.
         // (Feed has no update at all → definitely not pending.)
@@ -160,7 +164,7 @@ export function useUpdater() {
     const run = ++downloadRunRef.current;
     const isCurrent = () => downloadRunRef.current === run;
     setDownload({ kind: "working", bytes: 0, total: null, phase: "downloading" });
-    setHideWorking(false);
+    setNotesOpen(false);
 
     let update: Awaited<ReturnType<typeof check>> | null = null;
     let lastActivityAt = Date.now();
@@ -186,7 +190,6 @@ export function useUpdater() {
         update = null;
       }
       activeDownloadRef.current = false;
-      setHideWorking(false);
       setDownload({ kind: "failed", message });
     };
 
@@ -259,7 +262,26 @@ export function useUpdater() {
     // version, which applyResult recognizes as pending (not fresh).
     setAvailable(null);
     setDownload({ kind: "idle" });
-    setHideWorking(false);
+    setNotesOpen(false);
+    setSnoozed(false);
+  }, []);
+
+  /**
+   * "Download later": hide the toast announcer for this session, but keep the
+   * offer itself — Settings still offers the download, and the next launch
+   * re-announces it. "Close" (dismissUpdate) clears the offer entirely.
+   */
+  const snoozeUpdate = useCallback(() => {
+    setNotesOpen(false);
+    setSnoozed(true);
+  }, []);
+
+  const openNotes = useCallback(() => {
+    setNotesOpen(true);
+  }, []);
+
+  const closeNotes = useCallback(() => {
+    setNotesOpen(false);
   }, []);
 
   const relaunchNow = useCallback(async () => {
@@ -281,8 +303,11 @@ export function useUpdater() {
     appVersion,
     checkNow,
     download,
-    hideWorking,
-    setHideWorking,
+    snoozed,
+    notesOpen,
+    openNotes,
+    closeNotes,
+    snoozeUpdate,
     startDownload,
     dismissUpdate,
     relaunchNow,
@@ -375,132 +400,123 @@ function ToastButton({
 }
 
 /**
- * Toast-driven update flow (replaces the old modal):
- * available → [Download] [Later] · downloading (byte progress, hideable via a
- * re-showable pill so it can never stall silently) · installing (after the
- * Finished event, while the installer finalizes) · installed → [Restart now]
- * [On next launch] · errors with actionable copy + Retry.
+ * Release-notes popup: shows what the update contains, then the user picks
+ * Download now (jumps to Settings and starts), Download later (snoozes the
+ * announcer until next launch; the offer stays in Settings), or Close
+ * (dismisses the offer entirely). Notes render as plain text — never HTML.
+ */
+function UpdateNotesDialog({
+  version,
+  body,
+  onDownloadNow,
+  onDownloadLater,
+  onClose,
+}: {
+  version: string;
+  body: string | undefined;
+  onDownloadNow: () => void;
+  onDownloadLater: () => void;
+  onClose: () => void;
+}) {
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    primaryRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      prev?.focus?.();
+    };
+  }, [onClose]);
+  return (
+    <div className="pointer-events-auto fixed inset-0 z-[80] flex items-center justify-center bg-[#1a1b1f]/30 p-4 backdrop-blur-sm">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Update v${version} release notes`}
+        className="w-full max-w-lg rounded-2xl border border-[#e5e5ea] bg-white p-5 shadow-[0_24px_64px_-16px_rgba(16,24,40,0.35)]"
+      >
+        <p className="text-[13px] font-semibold text-[#1c1c1e]">What&apos;s new in v{version}</p>
+        <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-xl border border-[#e5e5ea] bg-[#faf9fe] p-3 text-[13px] leading-relaxed text-[#414755]">
+          {body?.trim() ? body : "No release notes were provided for this version."}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          <button
+            ref={primaryRef}
+            onClick={onDownloadNow}
+            aria-label={`Download update v${version} now`}
+            className="rounded-full bg-[#0070eb] px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-sm transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-[#0058bc] active:scale-[0.97] motion-reduce:transition-none"
+          >
+            Download now
+          </button>
+          <button
+            onClick={onDownloadLater}
+            aria-label="Download later, remind me on next launch"
+            className="rounded-full border border-[#e5e5ea] bg-white px-3.5 py-1.5 text-[12px] font-semibold text-[#414755] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-[#0070eb]/40 hover:text-[#0058bc] active:scale-[0.97] motion-reduce:transition-none"
+          >
+            Download later
+          </button>
+          <button
+            onClick={onClose}
+            aria-label="Close update notification"
+            className="rounded-full border border-[#e5e5ea] bg-white px-3.5 py-1.5 text-[12px] font-semibold text-[#414755] transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-[#0070eb]/40 hover:text-[#0058bc] active:scale-[0.97] motion-reduce:transition-none"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Thin announcer only: when an update is available the toast offers
+ * [View update] (opens the release-notes popup) and [Later] (snoozes until
+ * next launch). All downloading, installing, restarting, and retrying happens
+ * in Settings → App updates — never inside a toast.
  * Everything is user-gated; nothing downloads, installs, or restarts alone.
  */
-export function UpdateToasts({ updater }: { updater: ReturnType<typeof useUpdater> }) {
-  const { available, download, hideWorking, restartPending } = updater;
+export function UpdateToasts({
+  updater,
+  onDownloadNow,
+}: {
+  updater: ReturnType<typeof useUpdater>;
+  onDownloadNow: () => void;
+}) {
+  const { available, download, snoozed, notesOpen, restartPending } = updater;
 
   return (
     <div
       aria-live="polite"
       className="pointer-events-none fixed bottom-4 right-4 z-[70] flex flex-col items-end gap-2"
     >
-      {available && download.kind === "idle" && !restartPending && (
+      {available && download.kind === "idle" && !restartPending && !snoozed && !notesOpen && (
         <ToastShell
           title={`Update available — v${available.version}`}
-          body="Stable channel. Downloads and installs only on your click."
+          body="See what's new, then choose when to download."
           icon={<DownloadSimple size={18} weight="bold" />}
           actions={
             <>
-              <ToastButton primary onClick={() => void updater.startDownload()}>
-                Download
+              <ToastButton primary onClick={updater.openNotes} ariaLabel="View update release notes">
+                View update
               </ToastButton>
-              <ToastButton onClick={updater.dismissUpdate} ariaLabel="Later">
+              <ToastButton onClick={updater.snoozeUpdate} ariaLabel="Remind me on next launch">
                 Later
               </ToastButton>
             </>
           }
         />
       )}
-
-      {available && download.kind === "idle" && restartPending && (
-        <ToastShell
-          title={`Restart to apply v${available.version}`}
-          body="Already installed and waiting — restart whenever you quit."
-          tone="ready"
-          icon={<CheckCircle size={18} weight="bold" />}
-          actions={
-            <>
-              <ToastButton primary onClick={() => void updater.relaunchNow()}>
-                Restart now
-              </ToastButton>
-              <ToastButton onClick={updater.dismissUpdate} ariaLabel="On next launch">
-                On next launch
-              </ToastButton>
-            </>
-          }
-        />
-      )}
-
-      {download.kind === "working" && !hideWorking && (
-        <ToastShell
-          title={download.phase === "installing" ? "Finishing install…" : "Downloading update…"}
-          body={
-            download.phase === "installing"
-              ? "Download complete — finalizing the install."
-              : download.total != null
-                ? `${fmtBytes(download.bytes)} of ${fmtBytes(download.total)}`
-                : `${fmtBytes(download.bytes)} so far`
-          }
-          icon={
-            <ArrowsClockwise size={18} weight="bold" className="animate-spin motion-reduce:animate-none" />
-          }
-          actions={
-            <ToastButton onClick={() => updater.setHideWorking(true)} ariaLabel="Hide download progress">
-              <span className="inline-flex items-center gap-1">
-                <X size={12} weight="bold" aria-hidden /> Hide
-              </span>
-            </ToastButton>
-          }
-        />
-      )}
-
-      {/* Hidden-but-live: hiding progress must never strand the update with no UI. */}
-      {download.kind === "working" && hideWorking && (
-        <ToastShell
-          title={download.phase === "installing" ? "Finishing install…" : "Downloading update…"}
-          body="Running in the background — select Show to watch it."
-          icon={
-            <ArrowsClockwise size={18} weight="bold" className="animate-spin motion-reduce:animate-none" />
-          }
-          actions={
-            <ToastButton onClick={() => updater.setHideWorking(false)} ariaLabel="Show download progress">
-              Show
-            </ToastButton>
-          }
-        />
-      )}
-
-      {download.kind === "ready" && (
-        <ToastShell
-          title="Update installed"
-          body="Restart the app to start using it — now or whenever you quit."
-          tone="ready"
-          icon={<CheckCircle size={18} weight="bold" />}
-          actions={
-            <>
-              <ToastButton primary onClick={() => void updater.relaunchNow()}>
-                Restart now
-              </ToastButton>
-              <ToastButton onClick={updater.dismissUpdate} ariaLabel="Install on next launch">
-                On next launch
-              </ToastButton>
-            </>
-          }
-        />
-      )}
-
-      {download.kind === "failed" && (
-        <ToastShell
-          title="Update failed"
-          body={download.message}
-          tone="error"
-          icon={<X size={18} weight="bold" />}
-          actions={
-            <>
-              <ToastButton primary onClick={() => void updater.startDownload()}>
-                Retry
-              </ToastButton>
-              <ToastButton onClick={updater.dismissUpdate} ariaLabel="Dismiss update error">
-                Dismiss
-              </ToastButton>
-            </>
-          }
+      {notesOpen && available && (
+        <UpdateNotesDialog
+          version={available.version}
+          body={available.body}
+          onDownloadNow={onDownloadNow}
+          onDownloadLater={updater.snoozeUpdate}
+          onClose={updater.dismissUpdate}
         />
       )}
     </div>
