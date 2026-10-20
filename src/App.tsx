@@ -764,7 +764,7 @@ export default function App() {
       {/* ── Main cockpit column ────────────────────────────────────────── */}
       <main id="main-content" className="relative min-w-0 flex-1">
         <AnimatePresence>{loading && <BootOverlay />}</AnimatePresence>
-        <div className="mx-auto min-w-0 max-w-6xl space-y-5 p-6">
+        <div className="mx-auto min-w-0 w-full max-w-[1600px] space-y-5 px-4 py-6 sm:px-6">
           {/* Top instrument readout: page title + date range island */}
           <header className="rounded-[1.75rem] border border-hairline bg-card p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
           <div className="rounded-[1.25rem] border border-hairline/70 bg-card px-5 py-4">
