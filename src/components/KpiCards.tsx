@@ -172,8 +172,6 @@ function Card({
   index,
   label,
   icon,
-  accent,
-  glow,
   figure,
   children,
   reduceMotion,
@@ -181,8 +179,6 @@ function Card({
   index: number;
   label: string;
   icon: React.ReactNode;
-  accent: string;
-  glow: string;
   figure: React.ReactNode;
   children: React.ReactNode;
   reduceMotion: boolean;
@@ -193,23 +189,16 @@ function Card({
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-32px" }}
       transition={{ duration: 0.55, delay: reduceMotion ? 0 : index * 0.06, ease: EASE }}
-      className="relative flex min-h-[184px] flex-col justify-between overflow-hidden rounded-[22px] border border-[#E4E1E8] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_8px_24px_-18px_rgba(16,24,40,0.28)] transition-colors duration-200 hover:border-[#CFCBD8]"
+      className="flex min-h-[184px] flex-col justify-between rounded-2xl border border-[#E4E1E8] bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_8px_24px_-18px_rgba(16,24,40,0.28)] transition-colors duration-200 hover:border-[#CFCBD8]"
     >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full blur-2xl"
-        style={{ background: glow }}
-      />
-      <span aria-hidden className="absolute inset-x-0 top-0 h-px" style={{ background: accent }} />
-      <div className="relative min-w-0">
+      <div className="min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-3">
+          <h3 className="text-[13px] font-medium text-ink-2">
             {label}
-          </span>
+          </h3>
           <span
             aria-hidden
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-            style={{ background: `${accent}14`, color: accent }}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F6F3F5] text-[#414755]"
           >
             {icon}
           </span>
@@ -218,7 +207,7 @@ function Card({
       </div>
       {/* Fixed footer band keeps the hairline and the bottom row on one
           baseline across all four cards, regardless of figure wrapping. */}
-      <div className="relative mt-4 border-t border-[#F0EDEF] pt-3">
+      <div className="mt-4 border-t border-[#F0EDEF] pt-3">
         <div className="flex min-h-[76px] flex-col justify-between gap-2">{children}</div>
       </div>
     </motion.div>
@@ -405,19 +394,16 @@ export default function KpiCards({
         <Card
           index={0}
           reduceMotion={reduceMotion}
-          label="Total Spend"
-          accent="#059669"
-          glow="radial-gradient(circle, rgba(5,150,105,0.16) 0%, rgba(5,150,105,0) 70%)"
+          label="Total spend"
           icon={<CurrencyDollar size={16} weight="bold" />}
           figure={
             <HeroFigure
               num={costWhole}
               fraction={costFraction}
               unit="USD"
-              unitClass="text-[#006b27]"
               badge={
                 freeSpend ? (
-                  <span className="ml-1 rounded-full bg-[#34C759]/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#006b27]">
+                  <span className="ml-1 text-[13px] font-semibold text-[#006b27]">
                     Free
                   </span>
                 ) : isFetching ? (
@@ -432,8 +418,9 @@ export default function KpiCards({
             />
           }
         >
-          <div className="flex items-center gap-1.5 font-sans text-[11px]">
-            <span className="tnum rounded-full bg-[#34C759]/[0.12] px-2 py-0.5 font-semibold text-[#006b27]">
+          <div className="tnum flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-ink-2">Per active day</span>
+            <span className="font-semibold text-ink">
               {freeSpend
                 ? "No metered spend"
                 : activeDays > 0
@@ -451,17 +438,17 @@ export default function KpiCards({
               viewport={{ once: true }}
               transition={{ duration: 0.8, ease: EASE }}
               style={{ width: `${Math.min(100, Math.max(0, peakShare * 100))}%` }}
-              className="h-full origin-left rounded-full bg-gradient-to-r from-[#059669] to-[#34C759]"
+              className="h-full origin-left rounded-full bg-[#059669]"
             />
           </div>
           <div
-            className="tnum flex items-center justify-between gap-2 font-mono text-[10px] text-ink-3"
+            className="tnum flex items-center justify-between gap-2 text-[11px]"
             title="Peak day cost and its share of total spend"
           >
-            <span>
+            <span className="text-ink-2">
               {peak && (peak?.cost ?? 0) > 0 ? `Peak ${fmtSpend(peak.cost)}` : "No spend peak"}
             </span>
-            <span>{peakShare > 0 ? `${fmtPct(peakShare)} of spend` : "—"}</span>
+            <span className="font-semibold text-ink">{peakShare > 0 ? `${fmtPct(peakShare)} of spend` : "—"}</span>
           </div>
         </Card>
 
@@ -469,42 +456,39 @@ export default function KpiCards({
         <Card
           index={1}
           reduceMotion={reduceMotion}
-          label="Total Tokens"
-          accent="#2563eb"
-          glow="radial-gradient(circle, rgba(37,99,235,0.15) 0%, rgba(37,99,235,0) 70%)"
+          label="Total tokens"
           icon={<Database size={16} weight="bold" />}
           figure={
             <HeroFigure
               num={tok.num}
               unit={unitWord}
-              unitClass="text-[#1d4ed8]"
             />
           }
         >
-          <div className="tnum flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-[11px] text-[#414755]">
+          <div className="tnum flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px]">
             <span
-              className="inline-flex items-center gap-1.5"
+              className="inline-flex items-center gap-1.5 font-medium text-ink"
               title="Plain input tokens — cache is listed separately"
             >
               <span className="h-2 w-2 rounded-full bg-[#0070eb]" aria-hidden />
               In {fmtTokens(totalIn)}
             </span>
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1.5 font-medium text-ink">
               <span className="h-2 w-2 rounded-full bg-[#AF52DE]" aria-hidden />
               Out {fmtTokens(totalOut)}
             </span>
           </div>
-          <div className="tnum flex flex-wrap items-center justify-between gap-1 rounded-md bg-[#F6F3F5] px-2 py-1 font-mono text-[10px]">
-            <span className="font-sans text-[#414755]">
+          <div className="tnum flex flex-wrap items-center justify-between gap-1 text-[11px]">
+            <span className="text-ink-2">
               Cache {fmtTokens(cacheRead)} read
             </span>
-            <span className="font-semibold text-[#006b27]">
+            <span className="font-semibold text-ink">
               {fmtTokens(cacheWrite)} write · {fmtPct(cacheHit)}
             </span>
           </div>
-          <div className="tnum flex items-center justify-between font-mono text-[10px] text-ink-3">
-            <span>Reasoning {fmtTokens(totalReasoning)}</span>
-            <span>{msgLabel} messages</span>
+          <div className="tnum flex items-center justify-between text-[11px]">
+            <span className="text-ink-2">Reasoning {fmtTokens(totalReasoning)}</span>
+            <span className="font-semibold text-ink">{msgLabel} messages</span>
           </div>
         </Card>
 
@@ -512,45 +496,41 @@ export default function KpiCards({
         <Card
           index={2}
           reduceMotion={reduceMotion}
-          label="Agent Sessions"
-          accent="#0891b2"
-          glow="radial-gradient(circle, rgba(8,145,178,0.14) 0%, rgba(8,145,178,0) 70%)"
+          label="Agent sessions"
           icon={<TerminalWindow size={16} weight="bold" />}
-          figure={<HeroFigure num={sessionLabel} unit="Sessions" unitClass="text-[#0e7490]" />}
+          figure={<HeroFigure num={sessionLabel} unit="Sessions" />}
         >
-          <div className="flex items-center justify-between font-sans text-[11px]">
-            <span className="text-[#414755]">Avg / session</span>
-            <span className="tnum font-mono text-[11px] font-semibold text-[#1b1b1d]">
+          <div className="tnum flex items-center justify-between text-[11px]">
+            <span className="text-ink-2">Avg / session</span>
+            <span className="font-semibold text-ink">
               {fmtTokens(avgTokensPerSession)} tok
             </span>
           </div>
-          <div className="flex items-center justify-between font-sans text-[11px]">
-            <span className="text-[#414755]">Avg cost / session</span>
-            <span className="tnum font-mono text-[11px] font-semibold text-[#1b1b1d]">
+          <div className="tnum flex items-center justify-between text-[11px]">
+            <span className="text-ink-2">Avg cost / session</span>
+            <span className="font-semibold text-ink">
               {fmtSpend(avgCostPerSession)}
             </span>
           </div>
-          <p className="tnum font-mono text-[10px] text-ink-3">
-            {realProjectsCount} active workspace{realProjectsCount === 1 ? "" : "s"}
-          </p>
+          <div className="tnum flex items-center justify-between text-[11px]">
+            <span className="text-ink-2">Active workspaces</span>
+            <span className="font-semibold text-ink">{realProjectsCount}</span>
+          </div>
         </Card>
 
         {/* Tile 4 — Active days */}
         <Card
           index={3}
           reduceMotion={reduceMotion}
-          label="Active Coding Days"
-          accent="#ea580c"
-          glow="radial-gradient(circle, rgba(234,88,12,0.14) 0%, rgba(234,88,12,0) 70%)"
+          label="Active coding days"
           icon={<Flame size={16} weight="bold" />}
           figure={
             <HeroFigure
               num={`${activeLabel}${totalDays ? ` / ${totalDays}` : ""}`}
               unit="Days Active"
-              unitClass="text-[#c2410c]"
               badge={
                 <span
-                  className="tnum ml-1 whitespace-nowrap rounded-full bg-orange-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-orange-700"
+                  className="tnum ml-1 whitespace-nowrap text-[12px] font-semibold text-ink-2"
                   title="Active days / calendar days in the selected range"
                 >
                   {totalDays > 0 ? `${fmtPct(uptime)} uptime` : "no data"}
@@ -561,11 +541,11 @@ export default function KpiCards({
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-3">
+              <div className="text-[11px] text-ink-2">
                 Top client
               </div>
               <div
-                className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-[#9a3412]"
+                className="tnum mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-ink"
                 title={
                   topClient
                     ? `Top client: ${topClient.label} · ${topClient.sessions} sessions`
@@ -581,7 +561,7 @@ export default function KpiCards({
                 ) : null}
                 <span className="truncate">{topClient ? topClient.label : "No sessions"}</span>
                 {topClient ? (
-                  <span className="tnum shrink-0 text-[10px] font-semibold text-ink-3">
+                  <span className="shrink-0 text-[11px] font-semibold text-ink-2">
                     · {topClient.sessions}
                     <span className="hidden 2xl:inline">
                       {topClient.sessions === 1 ? " session" : " sessions"}
@@ -591,10 +571,10 @@ export default function KpiCards({
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-3">
+              <div className="text-[11px] text-ink-2">
                 Peak spend
               </div>
-              <div className="tnum mt-0.5 font-mono text-[11px] font-semibold text-ink">
+              <div className="tnum mt-0.5 text-[11px] font-semibold text-ink">
                 {peakDay}
               </div>
             </div>
@@ -619,15 +599,15 @@ export default function KpiCards({
                   }`}
                   className={cn(
                     "min-w-0 rounded-[2px]",
-                    day.tokens > 0 ? "bg-[#ea580c]" : "bg-[#E4E1E8]",
+                    day.tokens > 0 ? "bg-orange-600" : "bg-[#E4E1E8]",
                   )}
                   style={{ height: day.tokens > 0 ? "100%" : "30%" }}
                 />
               ))}
             </div>
-            <div className="tnum flex items-center justify-between pt-1 font-mono text-[10px] text-ink-3">
-              <span>{windowLabel}</span>
-              <span>
+            <div className="tnum flex items-center justify-between pt-1 text-[11px]">
+              <span className="text-ink-2">{windowLabel}</span>
+              <span className="font-semibold text-ink">
                 {windowActive}/{windowDays} active
               </span>
             </div>

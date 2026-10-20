@@ -962,7 +962,7 @@ export default function App() {
                     models={snap?.models ?? []}
                     onViewDetailedMatrix={openModelsMatrix}
                   />
-                  <Heatmap days={snap?.daily ?? []} />
+                  <Heatmap days={snap?.daily ?? []} contextDays={statsSnap?.daily ?? snap?.daily ?? []} />
                   <div className="rounded-2xl border border-[#e5e5ea] bg-white shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#f2f2f7] px-4 py-3">
                       <h3 className="font-display text-sm font-semibold tracking-tight text-ink">
@@ -998,7 +998,7 @@ export default function App() {
                 </div>
               )}
 
-              {page === "calendar" && <Heatmap days={snap?.daily ?? []} />}
+              {page === "calendar" && <Heatmap days={snap?.daily ?? []} contextDays={statsSnap?.daily ?? snap?.daily ?? []} />}
 
               {page === "usage" && <UsageDetail clients={clients} />}
 
@@ -1681,13 +1681,13 @@ function ProjectsView({
                 <th scope="col" className="w-[130px] px-2.5 py-2.5 font-semibold">
                   Clients
                 </th>
-                <th scope="col" className="w-[140px] px-2.5 py-2.5 font-semibold">
+                <th scope="col" className="w-[200px] px-2.5 py-2.5 font-semibold">
                   Top model
                 </th>
                 <th scope="col" className="whitespace-nowrap px-2.5 py-2.5 font-semibold">
                   Last active
                 </th>
-                <th scope="col" className="w-[110px] whitespace-nowrap px-2.5 py-2.5 font-semibold">
+                <th scope="col" className="w-[100px] whitespace-nowrap px-2.5 py-2.5 font-semibold">
                   Share
                 </th>
                 <th scope="col" className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
@@ -1785,11 +1785,11 @@ function ProjectsView({
                         <span className="text-[11px] text-outline">—</span>
                       )}
                     </td>
-                    <td className="max-w-[160px] px-2.5 py-2.5">
+                    <td className="max-w-[220px] px-2.5 py-2.5">
                       {p.top_model ? (
                         <span
                           title={p.top_model}
-                          className="tnum inline-block max-w-full truncate break-words rounded-md border border-outline-variant/30 bg-surface-container-low px-1.5 py-0.5 font-mono text-[11px] whitespace-nowrap text-on-surface-variant"
+                          className="tnum inline-block max-w-full rounded-md border border-outline-variant/30 bg-surface-container-low px-1.5 py-0.5 font-mono text-[11px] leading-snug whitespace-normal break-words text-on-surface-variant"
                         >
                           {p.top_model}
                         </span>
@@ -1808,7 +1808,7 @@ function ProjectsView({
                     <td className="px-2.5 py-2.5">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <div
-                          className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-surface-container-high"
+                          className="h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-surface-container-high"
                           role="img"
                           aria-label={`Share ${fmtPct(share)} of workspace tokens`}
                           title={`Share ${fmtPct(share)}`}

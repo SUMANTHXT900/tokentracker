@@ -105,8 +105,10 @@ function parseIsoDay(s: string): Date | null {
   return out;
 }
 
-/** Strip-chart recorder of coding cadence. Click a day to filter (sets since/until). */
-export default function Heatmap({ days }: { days: DailyDTO[] }) {
+/** Strip-chart recorder of coding cadence. Click a day to filter (sets since/until).
+ * `days` is the date-scoped series driving every readout; `contextDays` (when
+ * provided) is the unfiltered-by-date series driving grid geometry + `max`. */
+export default function Heatmap({ days, contextDays }: { days: DailyDTO[]; contextDays?: DailyDTO[] }) {
   const { setRange, setHeatmapDay, heatmapDay, since, until } = useStore();
   const [hovered, setHovered] = useState<Cell | null>(null);
   const [scale, setScale] = useState<Scale>("tokens");
@@ -153,75 +155,91 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
     }
   }, [heatmapDay, since, until, setHeatmapDay]);
 
+  const hasContext = contextDays !== undefined;
+  const geomDays = hasContext ? (contextDays as DailyDTO[]) : days;
+
   const { weeks, rangeLabel, stats } = useMemo(() => {
-    const byDate = new Map<string, DailyDTO>();
-    for (const d of days) byDate.set(d.date, d);
     const valueOf = (d: DailyDTO) => (effScale === "tokens" ? d.tokens : d.cost);
 
     const today = parseIsoDay(todayIso) ?? new Date();
     today.setHours(0, 0, 0, 0);
 
-    // The window ends where the filter ends (clamped to today), so a
-    // single-day or historical scope doesn't trail weeks of empty cells.
-    const untilDay = until ? parseIsoDay(until) : null;
-    let end = today;
-    if (untilDay && untilDay < today) end = untilDay;
-    const endIso = isoDate(end);
-    const endMonday = mondayOf(end);
-
-    // Start from the earliest day actually present (the API already applied
-    // since/until); fall back to the filter start, then a modest empty window.
-    let first: Date | null = null;
-    for (const d of days) {
-      const parsed = parseIsoDay(d.date);
-      if (parsed && (!first || parsed < first)) first = parsed;
-    }
     const sinceDay = since ? parseIsoDay(since) : null;
-    // An explicit range is the contract: a 90d filter must render 90 days even
-    // if the selected client only has activity in the last week. All-time (no
-    // since) falls back to the first recorded day so old history doesn't leave
-    // a year of empty cells.
-    const anchor = sinceDay ?? first;
-    let start: Date;
-    if (anchor) {
-      start = mondayOf(anchor);
-    } else {
-      const fallback = new Date(end);
-      fallback.setDate(end.getDate() - 12 * 7);
-      start = mondayOf(fallback);
-    }
+    const untilDay = until ? parseIsoDay(until) : null;
 
-    // At most 53 columns: 52 weeks back from the end week's Monday. Anchoring
-    // on the week (not 53*7-1 days) prevents a 54th column on some weekdays.
-    const capStart = new Date(endMonday);
-    capStart.setDate(endMonday.getDate() - 52 * 7);
-    if (start < capStart) start = capStart;
-    if (start > endMonday) start = endMonday;
+    // A single-day scope must not collapse the matrix: when a context series
+    // is provided, the grid ignores the date filter and renders the full
+    // context window so every other day stays clickable.
+    const ignoreDateFilter = scopedDay != null && hasContext;
 
-    const startIso = isoDate(start);
-    const weekCount = Math.max(
-      1,
-      Math.round((dayOrdinal(isoDate(endMonday)) - dayOrdinal(startIso)) / 7) + 1,
-    );
+    const windowFor = (source: DailyDTO[], ignoreFilter: boolean) => {
+      let end = today;
+      if (!ignoreFilter && untilDay && untilDay < today) end = untilDay;
+      const endIso = isoDate(end);
+      const endMonday = mondayOf(end);
 
-    // Intensity is relative to the visible window, not data the cap just hid.
+      let first: Date | null = null;
+      for (const d of source) {
+        const parsed = parseIsoDay(d.date);
+        if (parsed && (!first || parsed < first)) first = parsed;
+      }
+      // An explicit range is the contract: a 90d filter must render 90 days even
+      // if the selected client only has activity in the last week. All-time (no
+      // since) falls back to the first recorded day so old history doesn't leave
+      // a year of empty cells.
+      const anchor = ignoreFilter ? first : (sinceDay ?? first);
+      let start: Date;
+      if (anchor) {
+        start = mondayOf(anchor);
+      } else {
+        const fallback = new Date(end);
+        fallback.setDate(end.getDate() - 12 * 7);
+        start = mondayOf(fallback);
+      }
+
+      // At most 53 columns: 52 weeks back from the end week's Monday. Anchoring
+      // on the week (not 53*7-1 days) prevents a 54th column on some weekdays.
+      const capStart = new Date(endMonday);
+      capStart.setDate(endMonday.getDate() - 52 * 7);
+      if (start < capStart) start = capStart;
+      if (start > endMonday) start = endMonday;
+
+      const startIso = isoDate(start);
+      const weekCount = Math.max(
+        1,
+        Math.round((dayOrdinal(isoDate(endMonday)) - dayOrdinal(startIso)) / 7) + 1,
+      );
+      return { start, end, startIso, endIso, endMonday, weekCount };
+    };
+
+    // Readout window: always the scoped selection (current behavior).
+    const scoped = windowFor(days, false);
+    // Grid geometry: the context window (unfiltered by date); identical to the
+    // scoped window unless a single-day scope is active or no context was given.
+    const grid = ignoreDateFilter ? windowFor(geomDays, true) : windowFor(geomDays, false);
+
+    // Intensity is relative to the visible grid window, not data the cap hid.
+    const geomByDate = new Map<string, DailyDTO>();
+    for (const d of geomDays) geomByDate.set(d.date, d);
     let max = 0.01;
-    for (const d of days) {
-      if (d.date >= startIso && d.date <= endIso) max = Math.max(max, valueOf(d));
+    for (const d of geomDays) {
+      if (d.date >= grid.startIso && d.date <= grid.endIso) max = Math.max(max, valueOf(d));
     }
 
+    // Cells render context values so days outside the scoped range stay visible
+    // (dimmed by their own intensity, never hidden).
     const cols: Cell[][] = [];
-    for (let w = 0; w < weekCount; w++) {
+    for (let w = 0; w < grid.weekCount; w++) {
       const col: Cell[] = [];
       for (let d = 0; d < 7; d++) {
-        const dt = new Date(start);
-        dt.setDate(start.getDate() + w * 7 + d);
+        const dt = new Date(grid.start);
+        dt.setDate(grid.start.getDate() + w * 7 + d);
         const key = isoDate(dt);
-        if (key > endIso) {
+        if (key > grid.endIso) {
           col.push({ date: "", future: true, tokens: 0, cost: 0, messages: 0, value: 0, t: -1 });
           continue;
         }
-        const day = byDate.get(key);
+        const day = geomByDate.get(key);
         const value = day ? valueOf(day) : 0;
         col.push({
           date: key,
@@ -236,7 +254,7 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
       cols.push(col);
     }
 
-    // Streak / activity stats
+    // Streak / activity stats describe the scoped selection, not the context.
     const activeDates = [
       ...new Set(
         days.filter((d) => d.tokens > 0 || d.cost > 0).map((d) => d.date),
@@ -256,19 +274,19 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
       return !best || valueOf(d) > valueOf(best) ? d : best;
     }, null);
 
-    const startLabel = `${fmtDayLabel(startIso)}${
-      start.getFullYear() !== end.getFullYear() ? `, ${start.getFullYear()}` : ""
+    const startLabel = `${fmtDayLabel(scoped.startIso)}${
+      scoped.start.getFullYear() !== scoped.end.getFullYear() ? `, ${scoped.start.getFullYear()}` : ""
     }`;
     const rangeLabel =
-      startIso === endIso
-        ? `${fmtDayLabel(endIso)}, ${end.getFullYear()}`
-        : `${startLabel} – ${fmtDayLabel(endIso)}, ${end.getFullYear()}`;
+      scoped.startIso === scoped.endIso
+        ? `${fmtDayLabel(scoped.endIso)}, ${scoped.end.getFullYear()}`
+        : `${startLabel} – ${fmtDayLabel(scoped.endIso)}, ${scoped.end.getFullYear()}`;
     return {
       weeks: cols,
       rangeLabel,
       stats: { activeDays: activeDates.length, longest, peak },
     };
-  }, [days, effScale, since, until, todayIso]);
+  }, [days, geomDays, effScale, since, until, todayIso, scopedDay, hasContext]);
 
   const animatedActive = useCountUp(stats.activeDays);
   const animatedLongest = useCountUp(stats.longest);
