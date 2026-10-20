@@ -764,7 +764,7 @@ export default function App() {
       {/* ── Main cockpit column ────────────────────────────────────────── */}
       <main id="main-content" className="relative min-w-0 flex-1">
         <AnimatePresence>{loading && <BootOverlay />}</AnimatePresence>
-        <div className="mx-auto max-w-6xl space-y-5 p-6">
+        <div className="mx-auto min-w-0 max-w-6xl space-y-5 p-6">
           {/* Top instrument readout: page title + date range island */}
           <header className="rounded-[1.75rem] border border-hairline bg-card p-1.5 shadow-[0_1px_3px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.12)]">
           <div className="rounded-[1.25rem] border border-hairline/70 bg-card px-5 py-4">
@@ -945,7 +945,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
-              className="space-y-4"
+              className="min-w-0 space-y-4"
             >
               {page === "overview" && (
                 <>
@@ -983,7 +983,7 @@ export default function App() {
               {page === "projects" && <ProjectsView snap={snap} loading={loading} />}
 
               {page === "models" && (
-                <div className="space-y-4">
+                <div className="min-w-0 space-y-4">
                   <ModelDonut models={snap?.models ?? []} />
                   <ModelTelemetryTable models={snap?.models ?? []} loading={loading} />
                 </div>
@@ -1461,7 +1461,7 @@ function ProjectsView({
     );
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {/* Workspace ledger — Stitch Cupertino Telemetry LIGHT: white card, hairlines */}
       <div className="rounded-2xl border border-outline-variant/30 bg-surface-container-lowest p-5 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
         <div>
@@ -1603,7 +1603,7 @@ function ProjectsView({
           </div>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
+        <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
           <div className="flex items-center justify-between gap-2 border-b border-outline-variant/30 px-5 py-3">
             <div className="min-w-0">
               <h3 className="truncate text-[14px] font-semibold tracking-tight text-on-surface">Workspaces</h3>
@@ -1613,38 +1613,38 @@ function ProjectsView({
               {rows.length.toLocaleString()} rows · {activeSortLabel.toLowerCase()}
             </p>
           </div>
-          <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+          <div className="min-w-0 max-w-full overflow-x-auto">
+          <table className="w-full min-w-[720px] table-auto border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-outline-variant/30 bg-surface-container-low text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
-                <th scope="col" className="w-11 px-4 py-3 pl-5 font-mono font-medium text-outline">
+                <th scope="col" className="w-8 px-2 py-2.5 pl-4 font-mono font-medium text-outline">
                   #
                 </th>
-                <th scope="col" className="px-4 py-3 font-semibold">
+                <th scope="col" className="min-w-[140px] px-2.5 py-2.5 font-semibold">
                   Workspace
                 </th>
-                <th scope="col" className="px-4 py-3 font-semibold">
+                <th scope="col" className="w-[130px] px-2.5 py-2.5 font-semibold">
                   Clients
                 </th>
-                <th scope="col" className="px-4 py-3 font-semibold">
+                <th scope="col" className="w-[140px] px-2.5 py-2.5 font-semibold">
                   Top model
                 </th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 font-semibold">
+                <th scope="col" className="whitespace-nowrap px-2.5 py-2.5 font-semibold">
                   Last active
                 </th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 font-semibold">
+                <th scope="col" className="w-[110px] whitespace-nowrap px-2.5 py-2.5 font-semibold">
                   Share
                 </th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 text-right font-semibold">
+                <th scope="col" className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
                   Sessions
                 </th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 text-right font-semibold">
+                <th scope="col" className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
                   Messages
                 </th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 text-right font-semibold">
+                <th scope="col" className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
                   Tokens
                 </th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 pr-5 text-right font-semibold">
+                <th scope="col" className="whitespace-nowrap px-2 py-2.5 pr-4 text-right font-semibold">
                   Cost
                 </th>
               </tr>
@@ -1661,13 +1661,13 @@ function ProjectsView({
                     key={p.workspace_key}
                     className="group align-middle transition-colors hover:bg-surface-container-low/70 motion-reduce:transition-none"
                   >
-                    <td className="tnum whitespace-nowrap px-4 py-3 pl-5 font-mono text-[11px] text-outline transition-colors group-hover:text-on-surface-variant motion-reduce:transition-none">
+                    <td className="tnum whitespace-nowrap px-2 py-2.5 pl-4 font-mono text-[11px] text-outline transition-colors group-hover:text-on-surface-variant motion-reduce:transition-none">
                       {String(idx + 1).padStart(2, "0")}
                     </td>
-                    <td className="max-w-[260px] px-4 py-3">
+                    <td className="min-w-[140px] max-w-[240px] px-2.5 py-2.5">
                       <div className="min-w-0">
                         <p
-                          className="truncate text-[13px] font-semibold leading-snug text-on-surface"
+                          className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-on-surface"
                           title={p.workspace_label}
                         >
                           {p.workspace_label}
@@ -1694,7 +1694,7 @@ function ProjectsView({
                         </div>
                       </div>
                     </td>
-                    <td className="max-w-[190px] px-4 py-3">
+                    <td className="max-w-[150px] px-2.5 py-2.5">
                       {clients.length > 0 ? (
                         <div
                           className="flex min-w-0 items-center gap-1 overflow-hidden"
@@ -1706,7 +1706,7 @@ function ProjectsView({
                               <span
                                 key={c}
                                 title={v.label}
-                                className="inline-flex min-w-0 max-w-[104px] items-center gap-1 truncate rounded-full border border-outline-variant/40 bg-surface-container-low px-1.5 py-0.5 text-[11px] font-medium leading-tight text-on-surface-variant"
+                                className="inline-flex min-w-0 max-w-[88px] items-center gap-1 truncate rounded-full border border-outline-variant/40 bg-surface-container-low px-1.5 py-0.5 text-[11px] font-medium leading-tight text-on-surface-variant"
                               >
                                 <span
                                   className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -1730,11 +1730,11 @@ function ProjectsView({
                         <span className="text-[11px] text-outline">—</span>
                       )}
                     </td>
-                    <td className="max-w-[190px] px-4 py-3">
+                    <td className="max-w-[160px] px-2.5 py-2.5">
                       {p.top_model ? (
                         <span
                           title={p.top_model}
-                          className="tnum inline-block max-w-full truncate rounded-md border border-outline-variant/30 bg-surface-container-low px-2 py-0.5 font-mono text-[11px] whitespace-nowrap text-on-surface-variant"
+                          className="tnum inline-block max-w-full truncate break-words rounded-md border border-outline-variant/30 bg-surface-container-low px-1.5 py-0.5 font-mono text-[11px] whitespace-nowrap text-on-surface-variant"
                         >
                           {p.top_model}
                         </span>
@@ -1743,17 +1743,17 @@ function ProjectsView({
                       )}
                     </td>
                     <td
-                      className="tnum whitespace-nowrap px-4 py-3 font-mono text-[11px] text-on-surface-variant"
+                      className="tnum whitespace-nowrap px-2.5 py-2.5 font-mono text-[11px] text-on-surface-variant"
                       title={
                         p.last_seen ? new Date(p.last_seen).toLocaleString() : undefined
                       }
                     >
                       {relTime(p.last_seen)}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex min-w-0 items-center gap-2">
+                    <td className="px-2.5 py-2.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <div
-                          className="h-1.5 w-[64px] shrink-0 overflow-hidden rounded-full bg-surface-container-high"
+                          className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-surface-container-high"
                           role="img"
                           aria-label={`Share ${fmtPct(share)} of workspace tokens`}
                           title={`Share ${fmtPct(share)}`}
@@ -1763,22 +1763,22 @@ function ProjectsView({
                             style={{ transform: `scaleX(${p.tokens > 0 ? Math.max(share, 0.02) : 0})` }}
                           />
                         </div>
-                        <span className="tnum w-11 shrink-0 whitespace-nowrap font-mono text-[11px] text-on-surface-variant">
+                        <span className="tnum w-10 shrink-0 whitespace-nowrap font-mono text-[11px] text-on-surface-variant">
                           {fmtPct(share)}
                         </span>
                       </div>
                     </td>
-                    <td className="tnum whitespace-nowrap px-4 py-3 text-right font-mono text-[12px] text-on-surface-variant">
+                    <td className="tnum whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
                       {p.sessions.toLocaleString()}
                     </td>
-                    <td className="tnum whitespace-nowrap px-4 py-3 text-right font-mono text-[12px] text-on-surface-variant">
+                    <td className="tnum whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
                       {p.messages.toLocaleString()}
                     </td>
-                    <td className="tnum whitespace-nowrap px-4 py-3 text-right font-mono text-[12px] font-semibold text-on-surface">
+                    <td className="tnum whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] font-semibold text-on-surface">
                       {fmtTokens(p.tokens)}
                     </td>
                     <td
-                      className="tnum whitespace-nowrap px-4 py-3 pr-5 text-right font-mono text-[12px] font-medium text-on-surface"
+                      className="tnum whitespace-nowrap px-2 py-2.5 pr-4 text-right font-mono text-[12px] font-medium text-on-surface"
                       title={`Exact: ${fmtCostPrecise(p.cost)}`}
                     >
                       {fmtCostPrecise(p.cost)}
@@ -1864,7 +1864,7 @@ function ModelTelemetryTable({
     return (
       <th
         aria-sort={ariaSort}
-        className={cn("whitespace-nowrap px-4 py-3 font-sans text-[11px] font-semibold uppercase tracking-wider", align === "right" ? "text-right" : "text-left")}
+        className={cn("whitespace-nowrap px-2 py-2.5 font-sans text-[11px] font-semibold uppercase tracking-wider", align === "right" ? "text-right" : "text-left")}
       >
         <button
           type="button"
@@ -1899,7 +1899,7 @@ function ModelTelemetryTable({
   const totalModelTokens = models.reduce((a, m) => a + m.tokens, 0) || 1;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
+    <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-outline-variant/30 px-5 py-4">
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary" aria-hidden="true">
@@ -1942,7 +1942,7 @@ function ModelTelemetryTable({
           </div>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="min-w-0 max-w-full overflow-x-auto">
       {loading && models.length === 0 ? (
         <div className="space-y-2 p-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -1973,14 +1973,14 @@ function ModelTelemetryTable({
           <p className="sr-only" role="status" aria-live="polite">
             {rows.length} models shown, sorted by {sort.key} {sort.dir === "asc" ? "ascending" : "descending"}
           </p>
-          <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[720px] table-auto border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-outline-variant/30 bg-surface-container-low text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
-              <th scope="col" className="w-11 px-4 py-3 pl-5 font-mono font-medium text-outline">
+              <th scope="col" className="w-8 px-2 py-2.5 pl-4 font-mono font-medium text-outline">
                 #
               </th>
               <Th label="Model" k="model" align="left" />
-              <th scope="col" className="whitespace-nowrap px-4 py-3 text-left font-sans text-[11px] font-semibold uppercase tracking-wider">
+              <th scope="col" className="whitespace-nowrap px-2.5 py-2.5 text-left font-sans text-[11px] font-semibold uppercase tracking-wider">
                 Client &amp; provider
               </th>
               <Th label="Input" k="input" />
@@ -1998,11 +1998,11 @@ function ModelTelemetryTable({
               const share = Math.max(0, Math.min(1, m.tokens / totalModelTokens));
               return (
                 <tr key={`${m.client}-${m.model}-${m.provider}-${i}`} className="group transition-colors hover:bg-surface-container-low/70 motion-reduce:transition-none">
-                  <td className="whitespace-nowrap px-4 py-3 pl-5 font-mono text-[11px] text-outline transition-colors group-hover:text-on-surface-variant motion-reduce:transition-none">
+                  <td className="whitespace-nowrap px-2 py-2.5 pl-4 font-mono text-[11px] text-outline transition-colors group-hover:text-on-surface-variant motion-reduce:transition-none">
                     {String(i + 1).padStart(2, "0")}
                   </td>
-                  <td className="max-w-[230px] px-4 py-3">
-                    <p className="truncate font-mono text-[13px] text-on-surface" title={m.model}>
+                  <td className="min-w-[120px] max-w-[180px] px-2.5 py-2.5">
+                    <p className="line-clamp-2 break-words font-mono text-[13px] leading-snug text-on-surface" title={m.model}>
                       {m.model}
                     </p>
                     <p
@@ -2012,11 +2012,11 @@ function ModelTelemetryTable({
                       {m.messages.toLocaleString()} msgs
                     </p>
                   </td>
-                  <td className="max-w-[200px] px-4 py-3">
-                    <div className="flex min-w-0 items-center gap-1.5">
+                  <td className="max-w-[160px] px-2.5 py-2.5">
+                    <div className="flex min-w-0 items-center gap-1">
                       <span
                         title={v.label}
-                        className="inline-flex min-w-0 max-w-[104px] items-center gap-1 truncate rounded-full border border-outline-variant/40 bg-surface-container-low px-1.5 py-0.5 text-[11px] font-medium leading-tight text-on-surface-variant"
+                        className="inline-flex min-w-0 max-w-[84px] items-center gap-1 truncate rounded-full border border-outline-variant/40 bg-surface-container-low px-1.5 py-0.5 text-[11px] font-medium leading-tight text-on-surface-variant"
                       >
                         <span
                           className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -2033,14 +2033,14 @@ function ModelTelemetryTable({
                       </span>
                     </div>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-[12px] text-on-surface-variant">
+                  <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
                     {fmtTokens(m.input)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-[12px] text-on-surface-variant">
+                  <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
                     {fmtTokens(m.output)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <div className="flex min-w-0 items-center justify-end gap-1.5">
+                  <td className="whitespace-nowrap px-2 py-2.5">
+                    <div className="flex min-w-0 items-center justify-end gap-1">
                       <span className="tnum shrink-0 font-mono text-[12px] whitespace-nowrap text-on-surface-variant">{fmtTokens(m.cache_read)}</span>
                       <span
                         className={cn(
@@ -2057,15 +2057,15 @@ function ModelTelemetryTable({
                       </span>
                     </div>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-[12px] text-on-surface-variant">
+                  <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
                     {fmtTokens(m.reasoning)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                  <td className="whitespace-nowrap px-2 py-2.5 text-right">
                     <span className="tnum font-mono text-[12px] font-semibold whitespace-nowrap text-on-surface">
                       {fmtTokens(m.tokens)}
                     </span>
                     <span
-                      className="mx-auto mt-1 block h-1 w-16 overflow-hidden rounded-full bg-surface-container-high"
+                      className="mx-auto mt-1 block h-1 w-12 overflow-hidden rounded-full bg-surface-container-high"
                       role="img"
                       aria-label={`Share ${fmtPct(share)} of model tokens`}
                       title={`Share ${fmtPct(share)}`}
@@ -2077,7 +2077,7 @@ function ModelTelemetryTable({
                     </span>
                   </td>
                   <td
-                    className="tnum whitespace-nowrap px-4 py-3 pr-5 text-right font-mono text-[12px] font-medium text-on-surface"
+                    className="tnum whitespace-nowrap px-2 py-2.5 pr-4 text-right font-mono text-[12px] font-medium text-on-surface"
                     title={`Exact: ${fmtCostPrecise(m.cost)}`}
                   >
                     {fmtCostPrecise(m.cost)}

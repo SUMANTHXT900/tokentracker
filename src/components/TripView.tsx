@@ -24,7 +24,7 @@ import {
   type ModelRowDTO,
   type TripDTO,
 } from "../lib/tauri";
-import { fmtCost, fmtDurationMs, fmtTokens } from "../lib/format";
+import { fmtCost, fmtCostPrecise, fmtDurationMs, fmtTokens, splitTokens } from "../lib/format";
 import { getClientVisual } from "../lib/client-color";
 import { cn } from "../lib/cn";
 
@@ -387,8 +387,14 @@ export default function TripView({
   if (isPending || !detail || !trip) return <TripViewSkeleton />;
   const d = detail.deltas;
   const tokens = safeNumber(d?.tokens);
+  const tokenSplit = splitTokens(tokens);
   const cost = safeNumber(d?.cost);
   const messages = safeNumber(d?.messages);
+  const inputTokens = d?.input;
+  const outputTokens = d?.output;
+  const hasInputOutput =
+    (isFiniteNumber(inputTokens) && inputTokens > 0) ||
+    (isFiniteNumber(outputTokens) && outputTokens > 0);
   const sessions = safeNumber(detail.sessions);
 
   const startedMs = parseTimestamp(trip.started_at);
@@ -678,10 +684,16 @@ export default function TripView({
                     className="max-w-full font-mono text-4xl font-bold tracking-tight text-[#1a1b1f] sm:text-5xl xl:text-6xl"
                     aria-live="off"
                     aria-label={`${fullNum(tokens)} tokens consumed this session`}
+                    title={`${fullNum(tokens)} tokens consumed this session`}
                   >
-                    <AnimatedNumber value={tokens} format={fullNum} />
+                    <AnimatedNumber value={tokens} format={(n) => splitTokens(n).num} />
                   </span>
-                  <span className="shrink-0 font-mono text-lg font-medium text-ink-3">tok</span>
+                  <span
+                    className="shrink-0 font-mono text-lg font-medium text-ink-3"
+                    title={`${fullNum(tokens)} tokens consumed this session`}
+                  >
+                    {tokenSplit.unit ? `${tokenSplit.unit} tok` : "tok"}
+                  </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e5e5ea] bg-white px-2.5 py-1 font-mono text-xs text-[#414755]">
@@ -989,10 +1001,32 @@ export default function TripView({
                       {messages > 0 ? fullNum(tokens / messages) : "—"}
                     </span>
                   </div>
+                  {hasInputOutput && (
+                    <>
+                      <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] py-1 text-ink-3">
+                        <span className="min-w-0 truncate">Input tokens</span>
+                        <span
+                          className="tnum shrink-0 font-medium text-[#1a1b1f]"
+                          title={`${fullNum(safeNumber(inputTokens))} tokens`}
+                        >
+                          {fmtTokens(safeNumber(inputTokens))} tok
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] py-1 text-ink-3">
+                        <span className="min-w-0 truncate">Output tokens</span>
+                        <span
+                          className="tnum shrink-0 font-medium text-[#1a1b1f]"
+                          title={`${fullNum(safeNumber(outputTokens))} tokens`}
+                        >
+                          {fmtTokens(safeNumber(outputTokens))} tok
+                        </span>
+                      </div>
+                    </>
+                  )}
                   <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] py-1 text-ink-3">
                     <span className="min-w-0 truncate">Cost / message</span>
                     <span className="tnum shrink-0 font-medium text-[#0058bc]">
-                      {messages > 0 ? fmtCost(cost / messages) : "—"}
+                      {messages > 0 ? fmtCostPrecise(cost / messages) : "—"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 border-b border-[#e5e5ea] py-1 text-ink-3">

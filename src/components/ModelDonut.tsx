@@ -18,9 +18,21 @@ const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 type ViewMode = "auto" | "donut" | "bars";
 type Metric = "cost" | "tokens";
 
-function shorten(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+/**
+ * Model ids are identifiers, not prose: the tail carries the payload
+ * ("muse-spark-1.3-contributor" vs "muse-spark-1.3-contributor-free").
+ * So we never cut the end. When a pathologically long id must be shortened,
+ * the middle is stripped instead and the suffix always survives.
+ */
+function elideMiddle(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const head = Math.ceil((max - 1) / 2);
+  const tail = max - 1 - head;
+  return `${s.slice(0, head)}…${s.slice(s.length - tail)}`;
 }
+
+/** Long ids still get room to breathe; only absurd lengths get middle-stripped. */
+const NAME_MAX = 64;
 
 /** Escape data-derived strings before interpolating into tooltip HTML. */
 function esc(s: unknown): string {
@@ -29,13 +41,6 @@ function esc(s: unknown): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-/** Long model lists collapse so tooltips stay bounded: first 8 + overflow count. */
-function shortFull(full: string): string {
-  const parts = full.split(", ");
-  if (parts.length <= 8) return full;
-  return `${parts.slice(0, 8).join(", ")} … +${parts.length - 8} more`;
 }
 
 function Segmented<T extends string>({
@@ -99,7 +104,10 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
     const top = sorted.slice(0, 5);
     const rest = sorted.slice(5);
     const out = top.map((m) => ({
-      name: shorten(m.model, 22),
+      id: m.model,
+      // Full model id, never shortened — the tail ("-free") is the payload.
+      name: m.model,
+      models: [`${m.model} (${m.client})`],
       full: `${m.model} (${m.client})`,
       client: m.client,
       tokens: m.tokens,
@@ -107,9 +115,12 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
       value: valueOf(m),
     }));
     if (rest.length > 0) {
+      const restModels = rest.map((r) => `${r.model} (${r.client})`);
       out.push({
+        id: `Other (${rest.length})`,
         name: `Other (${rest.length})`,
-        full: rest.map((r) => `${r.model} (${r.client})`).join(", "),
+        models: restModels,
+        full: restModels.join(", "),
         client: "",
         tokens: rest.reduce((a, m) => a + m.tokens, 0),
         cost: rest.reduce((a, m) => a + m.cost, 0),
@@ -169,16 +180,23 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
           formatter: (params: any) => {
             const d = (params?.data ?? {}) as {
               name?: string;
-              full?: string;
+              models?: string[];
               tokens?: number;
               cost?: number;
               value?: number;
             };
             const share = total > 0 && typeof d.value === "number" ? d.value / total : 0;
-            const heading = esc(shortFull(String(d.full ?? d.name ?? "")));
+            // Every model is listed in full — names wrap, they never get cut.
+            const models = d.models?.length ? d.models : [String(d.name ?? "")];
+            const heading = models
+              .map(
+                (m) =>
+                  `<div style="overflow-wrap:anywhere">${esc(m)}</div>`,
+              )
+              .join("");
             return `
-              <div style="min-width:176px;max-width:280px;font-family:'JetBrains Mono',monospace">
-                <div style="font-size:11.5px;font-weight:600;color:#1b1b1d;margin-bottom:7px;overflow:hidden;text-overflow:ellipsis">${heading}</div>
+              <div style="min-width:176px;max-width:320px;font-family:'JetBrains Mono',monospace">
+                <div style="font-size:11.5px;font-weight:600;color:#1b1b1d;margin-bottom:7px;max-height:220px;overflow-y:auto">${heading}</div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;padding:2px 0">
                   <span style="color:#626267;font-size:11px;font-family:sans-serif">Share</span>
                   <span style="color:#1b1b1d;font-size:12px;font-weight:600">${fmtPct(share)}</span>
@@ -209,7 +227,7 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
             data: slices.map((s) => ({
               name: s.name,
               value: s.value,
-              full: s.full,
+              models: s.models,
               tokens: s.tokens,
               cost: s.cost,
             })),
@@ -365,23 +383,29 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
                 const visual = s.client ? getClientVisual(s.client) : null;
                 return (
                   <li
-                    key={s.name}
-                    className="flex items-center gap-2 overflow-hidden py-1.5 text-[11px]"
+                    key={`${s.client}:${s.id}`}
+                    className="flex items-start gap-2 overflow-hidden py-1.5 text-[11px]"
                     title={s.full}
                   >
                     <span
-                      className="h-2.5 w-1 shrink-0 rounded-full"
+                      className="mt-[3px] h-2.5 w-1 shrink-0 rounded-full"
                       style={{ background: PALETTE[i % PALETTE.length] }}
                     />
                     {visual ? (
                       <span
-                        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", visual.dot)}
+                        className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", visual.dot)}
                         title={visual.label}
                       />
                     ) : (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
+                      <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
                     )}
-                    <span className="min-w-0 flex-1 truncate font-sans text-[#414755]">{s.name}</span>
+                    {/* Full model id: wraps instead of truncating, so "-free" stays visible. */}
+                    <span
+                      className="min-w-0 flex-1 break-words font-sans text-[#414755]"
+                      title={s.full}
+                    >
+                      {elideMiddle(s.name, NAME_MAX)}
+                    </span>
                     <span className="tnum min-w-[6ch] shrink-0 text-right font-mono text-ink-3">
                       {fmtPct(share)}
                     </span>
@@ -414,15 +438,19 @@ export default function ModelDonut({ models }: { models: ModelRowDTO[] }) {
                   className="space-y-1"
                 >
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 font-sans text-[13px]">
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 items-start gap-2">
                       <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        className="mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full"
                         style={{ background: PALETTE[i % PALETTE.length] }}
                       />
-                      <span className="min-w-0 flex-auto truncate font-semibold text-[#1b1b1d]">
-                        {shorten(m.model, 26)}
+                      {/* Full model id: wraps instead of truncating, so "-free" stays visible. */}
+                      <span
+                        className="min-w-0 flex-auto break-words font-semibold text-[#1b1b1d]"
+                        title={`${m.model} (${m.client})`}
+                      >
+                        {elideMiddle(m.model, NAME_MAX)}
                       </span>
-                      <span className="min-w-0 max-w-[8rem] truncate rounded bg-[#F6F3F5] px-1.5 py-0.5 font-sans text-[10px] text-[#626267]">
+                      <span className="mt-px min-w-0 max-w-[8rem] shrink-0 truncate rounded bg-[#F6F3F5] px-1.5 py-0.5 font-sans text-[10px] text-[#626267]">
                         {visual.label}
                       </span>
                     </div>
