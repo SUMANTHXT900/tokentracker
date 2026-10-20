@@ -143,13 +143,13 @@ function HeroFigure({
 }) {
   // Four-digit day totals are the only realistic 4-up overflow; shave the
   // numeral a little rather than letting it run under the card edge.
-  const dense = num.length + (fraction?.length ?? 0) >= 10;
+  const dense = num.length + (fraction?.length ?? 0) >= 9;
   return (
-    <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1.5">
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
       <span
         className={cn(
-          "tnum whitespace-nowrap font-display font-extrabold leading-[0.9] tracking-[-0.05em] text-[#111217] 2xl:text-[48px]",
-          dense ? "text-[40px]" : "text-[44px]",
+          "tnum whitespace-nowrap font-display font-extrabold leading-[0.9] tracking-[-0.05em] text-[#111217]",
+          dense ? "text-[42px] 2xl:text-[46px]" : "text-[48px] 2xl:text-[54px]",
         )}
       >
         {num}
@@ -157,7 +157,7 @@ function HeroFigure({
       </span>
       <span
         className={cn(
-          "whitespace-nowrap font-display text-[19px] font-bold leading-none tracking-[-0.02em]",
+          "whitespace-nowrap font-display text-[22px] font-extrabold leading-none tracking-[-0.02em]",
           unitClass ?? "text-[#414755]",
         )}
       >

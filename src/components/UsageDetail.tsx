@@ -41,6 +41,7 @@ import {
 } from "../lib/tauri";
 import { useStore } from "../store";
 import { cn } from "../lib/cn";
+import TooltipCard from "./TooltipCard";
 import { getClientVisual } from "../lib/client-color";
 import {
   fmtCost,
@@ -492,12 +493,19 @@ function ModelBreakdown({
                       {String(i + 1).padStart(2, "0")}
                     </td>
                     <td className="max-w-[200px] px-3 py-2.5">
-                      <p className="truncate font-mono text-[12px] text-ink" title={m.model}>
-                        {m.model}
-                      </p>
-                      <p className="truncate font-mono text-[11px] text-ink-3" title={m.provider}>
-                        {m.provider}
-                      </p>
+                      <TooltipCard
+                        content={
+                          <span className="break-words">
+                            {m.model} · {m.provider}
+                          </span>
+                        }
+                        containerClassName="block"
+                      >
+                        <p className="truncate font-mono text-[12px] text-ink">{m.model}</p>
+                        <p className="truncate font-mono text-[11px] text-ink-3">
+                          {m.provider}
+                        </p>
+                      </TooltipCard>
                     </td>
                     <td className="max-w-[130px] px-3 py-2.5">
                       <span
@@ -868,15 +876,19 @@ function TopSessions({
                             aria-label={`Open the Sessions page — ${title ?? s.session_id}`}
                             className="group block max-w-full rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                           >
-                            <span
-                              className={cn(
-                                "block truncate text-[13px] group-hover:text-primary motion-reduce:transition-none",
-                                title ? "font-semibold text-ink" : "font-mono text-ink-2",
-                              )}
-                              title={title ?? s.session_id}
+                            <TooltipCard
+                              content={title ?? s.session_id}
+                              containerClassName="block"
                             >
-                              {title ?? shortSessionId(s.session_id)}
-                            </span>
+                              <span
+                                className={cn(
+                                  "block truncate text-[13px] group-hover:text-primary motion-reduce:transition-none",
+                                  title ? "font-semibold text-ink" : "font-mono text-ink-2",
+                                )}
+                              >
+                                {title ?? shortSessionId(s.session_id)}
+                              </span>
+                            </TooltipCard>
                             <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
                               <span
                                 className="inline-flex shrink-0 items-center gap-1 rounded-full border border-hairline bg-tray px-1.5 py-0.5 text-[10px] font-medium text-ink-2"
@@ -889,12 +901,14 @@ function TopSessions({
                                 />
                                 {v.label}
                               </span>
-                              <span
-                                className="min-w-0 truncate font-mono text-[11px] text-ink-3"
-                                title={s.model}
+                              <TooltipCard
+                                content={s.model}
+                                containerClassName="block min-w-0"
                               >
-                                {s.model}
-                              </span>
+                                <span className="block truncate font-mono text-[11px] text-ink-3">
+                                  {s.model}
+                                </span>
+                              </TooltipCard>
                             </span>
                           </button>
                         </td>

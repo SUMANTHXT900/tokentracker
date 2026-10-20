@@ -13,6 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import type { SessionRowDTO } from "../lib/tauri";
 import { cn } from "../lib/cn";
+import TooltipCard from "./TooltipCard";
 import { getClientVisual } from "../lib/client-color";
 import { fmtCostPrecise, fmtDurationMs, fmtPct, fmtTokens } from "../lib/format";
 
@@ -738,26 +739,35 @@ export default function SessionsTable({
                             />
                           </button>
                           <div className="min-w-0 flex-1">
-                            <div
-                              className={cn(
-                                "truncate",
-                                title
-                                  ? "font-semibold text-slate-900"
-                                  : "font-mono text-slate-700",
-                              )}
-                              title={title ?? r.session_id}
+                            <TooltipCard
+                              content={title ?? r.session_id}
+                              containerClassName="block"
                             >
-                              {title ?? shortSessionId(r.session_id)}
-                            </div>
+                              <div
+                                className={cn(
+                                  "truncate",
+                                  title
+                                    ? "font-semibold text-slate-900"
+                                    : "font-mono text-slate-700",
+                                )}
+                              >
+                                {title ?? shortSessionId(r.session_id)}
+                              </div>
+                            </TooltipCard>
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               {showWorkspace && (
-                                <span
-                                  className="inline-flex max-w-40 items-center gap-1 truncate rounded bg-slate-100 px-1.5 py-px text-[10px] text-slate-500"
-                                  title={r.workspace_key || r.workspace_label || undefined}
+                                <TooltipCard
+                                  content={
+                                    <span className="break-all">
+                                      {r.workspace_key || r.workspace_label}
+                                    </span>
+                                  }
                                 >
-                                  <FolderOpen size={11} className="shrink-0 text-ink-3" />
-                                  <span className="truncate">{workspaceName}</span>
-                                </span>
+                                  <span className="inline-flex max-w-40 items-center gap-1 truncate rounded bg-slate-100 px-1.5 py-px text-[10px] text-slate-500">
+                                    <FolderOpen size={11} className="shrink-0 text-ink-3" />
+                                    <span className="truncate">{workspaceName}</span>
+                                  </span>
+                                </TooltipCard>
                               )}
                               {!!r.agent && (
                                 <span
@@ -810,9 +820,16 @@ export default function SessionsTable({
                       </td>
                       {/* Model */}
                       <td className="max-w-44 px-4 py-2.5 align-top">
-                        <div className="truncate font-mono text-slate-700" title={r.model}>
-                          {r.model}
-                        </div>
+                        <TooltipCard
+                          content={
+                            <span className="break-words">
+                              {[r.model, ...(r.models ?? []).filter((m) => m !== r.model)].join(", ")}
+                            </span>
+                          }
+                          containerClassName="block"
+                        >
+                          <div className="truncate font-mono text-slate-700">{r.model}</div>
+                        </TooltipCard>
                         {extraModels > 0 && (
                           <span
                             className="tnum mt-1 inline-block rounded-full border border-slate-200 bg-slate-50 px-1.5 py-px font-mono text-[10px] text-slate-500"
