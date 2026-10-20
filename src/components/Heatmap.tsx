@@ -293,7 +293,7 @@ export default function Heatmap({ days }: { days: DailyDTO[] }) {
   // rail + N week columns produce exactly N column gaps.
   const available = Math.max(0, gridW - railW - gridGap * weekCount);
   // Short scopes deserve bigger calendar blocks; a 53-week year stays dense.
-  const maxCell = weekCount <= 8 ? 56 : weekCount <= 16 ? 40 : weekCount <= 30 ? 28 : 18;
+  const maxCell = weekCount <= 8 ? 56 : weekCount <= 16 ? 48 : weekCount <= 30 ? 28 : 18;
   const minCell = weekCount <= 8 ? 28 : weekCount <= 16 ? 16 : 12;
   const cellSize = gridW > 0
     ? Math.max(minCell, Math.min(maxCell, Math.floor(available / weekCount)))
