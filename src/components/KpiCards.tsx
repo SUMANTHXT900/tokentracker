@@ -5,6 +5,7 @@ import type { DailyDTO, UsageSnapshotDTO } from "../lib/tauri";
 import { fmtCost, fmtCostPrecise, fmtPct, fmtTokens, splitTokens } from "../lib/format";
 import { getClientVisual } from "../lib/client-color";
 import { cn } from "../lib/cn";
+import TooltipCard from "./TooltipCard";
 import { useStore } from "../store";
 
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
@@ -544,14 +545,15 @@ export default function KpiCards({
               <div className="text-[11px] text-ink-2">
                 Top client
               </div>
-              <div
-                className="tnum mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-ink"
-                title={
+              <TooltipCard
+                content={
                   topClient
                     ? `Top client: ${topClient.label} · ${topClient.sessions} sessions`
                     : "No client sessions"
                 }
+                containerClassName="block min-w-0"
               >
+                <div className="tnum mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-ink">
                 {topClient ? (
                   <span
                     aria-hidden
@@ -568,7 +570,8 @@ export default function KpiCards({
                     </span>
                   </span>
                 ) : null}
-              </div>
+                </div>
+              </TooltipCard>
             </div>
             <div className="shrink-0 text-right">
               <div className="text-[11px] text-ink-2">
@@ -592,17 +595,20 @@ export default function KpiCards({
               }}
             >
               {activityDays.map((day) => (
-                <span
+                <TooltipCard
                   key={day.date}
-                  title={`${fmtDayLabel(day.date)} · ${
+                  content={`${fmtDayLabel(day.date)} · ${
                     day.tokens > 0 ? `${fmtTokens(day.tokens)} tokens` : "no activity"
                   }`}
-                  className={cn(
-                    "min-w-0 rounded-[2px]",
-                    day.tokens > 0 ? "bg-orange-600" : "bg-[#E4E1E8]",
-                  )}
-                  style={{ height: day.tokens > 0 ? "100%" : "30%" }}
-                />
+                >
+                  <span
+                    className={cn(
+                      "block min-w-0 rounded-[2px]",
+                      day.tokens > 0 ? "bg-orange-600" : "bg-[#E4E1E8]",
+                    )}
+                    style={{ height: day.tokens > 0 ? "100%" : "30%" }}
+                  />
+                </TooltipCard>
               ))}
             </div>
             <div className="tnum flex items-center justify-between pt-1 text-[11px]">

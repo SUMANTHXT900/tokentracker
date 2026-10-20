@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { createPortal } from "react-dom";
+import { MotionConfig, motion } from "motion/react";
 import { formatDistanceToNow } from "date-fns";
 import {
   CaretDown,
@@ -14,6 +15,7 @@ import {
 import type { SessionRowDTO } from "../lib/tauri";
 import { cn } from "../lib/cn";
 import TooltipCard from "./TooltipCard";
+import ExpandableModal from "./ExpandableModal";
 import { getClientVisual } from "../lib/client-color";
 import { fmtCostPrecise, fmtDurationMs, fmtPct, fmtTokens } from "../lib/format";
 
@@ -677,7 +679,6 @@ export default function SessionsTable({
                 const v = getClientVisual(r.client);
                 const title = r.session_title?.trim() ? r.session_title.trim() : null;
                 const expanded = selected === key;
-                const detailId = `${key}-detail`;
                 const extraModels = r.models && r.models.length > 1 ? r.models.length - 1 : 0;
                 const workspaceName = displayWorkspace(r.workspace_label, r.workspace_key);
                 const showWorkspace =
@@ -712,13 +713,12 @@ export default function SessionsTable({
                               setSelected(expanded ? null : key);
                             }}
                             aria-expanded={expanded}
-                            aria-controls={detailId}
                             aria-label={
                               expanded
-                                ? `Collapse details for ${title ?? r.session_id}`
-                                : `Expand details for ${title ?? r.session_id}`
+                                ? `Close details for ${title ?? r.session_id}`
+                                : `Open details for ${title ?? r.session_id}`
                             }
-                            title={expanded ? "Collapse details" : "Expand details"}
+                            title={expanded ? "Close details" : "Open details"}
                             className={cn(
                               "group/expand mt-0.5 shrink-0 rounded-full border p-1",
                               CONTROL_EASE,
@@ -770,15 +770,16 @@ export default function SessionsTable({
                                 </TooltipCard>
                               )}
                               {!!r.agent && (
-                                <span
-                                  className="inline-flex max-w-32 items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-px text-[10px] font-medium text-blue-700"
-                                  title={r.agent}
-                                >
-                                  <span className="truncate">{r.agent}</span>
-                                </span>
+                                <TooltipCard content={r.agent}>
+                                  <span className="inline-flex max-w-32 items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-px text-[10px] font-medium text-blue-700">
+                                    <span className="truncate">{r.agent}</span>
+                                  </span>
+                                </TooltipCard>
                               )}
                               <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] text-ink-3">
-                                <span title={r.session_id}>{shortSessionId(r.session_id)}</span>
+                                <TooltipCard content={r.session_id}>
+                                  <span>{shortSessionId(r.session_id)}</span>
+                                </TooltipCard>
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -840,10 +841,15 @@ export default function SessionsTable({
                         )}
                       </td>
                       {/* Last active */}
-                      <td className="min-w-28 px-4 py-2.5 align-top" title={fmtFull(r.last_seen)}>
-                        <div className="whitespace-nowrap font-medium text-slate-700">
-                          {fmtRelative(r.last_seen)}
-                        </div>
+                      <td className="min-w-28 px-4 py-2.5 align-top">
+                        <TooltipCard
+                          content={fmtFull(r.last_seen)}
+                          containerClassName="block"
+                        >
+                          <div className="whitespace-nowrap font-medium text-slate-700">
+                            {fmtRelative(r.last_seen)}
+                          </div>
+                        </TooltipCard>
                         <div className="mt-0.5 flex items-baseline gap-1.5 whitespace-nowrap text-[11px] text-ink-3">
                           <span className="min-w-0 truncate">{fmtTs(r.last_seen)}</span>
                           <span className="tnum shrink-0 rounded bg-slate-100 px-1 py-px font-mono text-[10px] text-slate-500">
@@ -856,45 +862,40 @@ export default function SessionsTable({
                         {r.messages.toLocaleString()}
                       </td>
                       {/* Tokens */}
-                      <td
-                        className="tnum min-w-20 whitespace-nowrap px-4 py-2.5 text-right align-top font-mono font-semibold text-slate-900"
-                        title={r.tokens.toLocaleString()}
-                      >
-                        {fmtTokens(r.tokens)}
+                      <td className="tnum min-w-20 whitespace-nowrap px-4 py-2.5 text-right align-top font-mono font-semibold text-slate-900">
+                        <TooltipCard content={r.tokens.toLocaleString()}>
+                          <span>{fmtTokens(r.tokens)}</span>
+                        </TooltipCard>
                       </td>
                       {/* Cost */}
-                      <td
-                        className="tnum min-w-20 whitespace-nowrap px-4 py-2.5 text-right align-top font-mono font-semibold text-blue-600"
-                        title={fmtCostPrecise(r.cost)}
-                      >
-                        {isFree ? (
-                          <span
-                            className="inline-block rounded-full border border-blue-200 bg-blue-50 px-2 py-px text-[10px] font-semibold text-blue-700"
-                            title="Tokens recorded at no cost"
-                          >
-                            Free
-                          </span>
-                        ) : (
-                          fmtCostPrecise(r.cost)
-                        )}
+                      <td className="tnum min-w-20 whitespace-nowrap px-4 py-2.5 text-right align-top font-mono font-semibold text-blue-600">
+                        <TooltipCard
+                          content={isFree ? "Tokens recorded at no cost" : fmtCostPrecise(r.cost)}
+                        >
+                          {isFree ? (
+                            <span className="inline-block rounded-full border border-blue-200 bg-blue-50 px-2 py-px text-[10px] font-semibold text-blue-700">
+                              Free
+                            </span>
+                          ) : (
+                            <span>{fmtCostPrecise(r.cost)}</span>
+                          )}
+                        </TooltipCard>
                       </td>
                     </tr>
 
-                    {/* Detail inspector */}
-                    <AnimatePresence initial={false}>
-                      {expanded && (
-                        <tr key={`${key}:detail`} className="bg-slate-50/70">
-                          <td colSpan={7} className="px-3 py-3 sm:px-4">
-                            <motion.div
-                              initial={{ opacity: 0, y: -10, scale: 0.995 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: -10, scale: 0.995 }}
-                              transition={{ type: "spring", stiffness: 380, damping: 34 }}
-                              id={detailId}
-                              role="region"
-                              aria-label={`Session details for ${title ?? r.session_id}`}
-                              className="rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-900/[0.06]"
-                            >
+                    {/* Detail inspector — pops out as a modal card
+                        (expandable-card pattern), never an inline
+                        dropdown, so the grid never jumps. Portalled to
+                        the body to keep table DOM valid. */}
+                    {createPortal(
+                      <ExpandableModal
+                        open={expanded}
+                        onClose={() => setSelected(null)}
+                        label={`Session details for ${title ?? r.session_id}`}
+                        wide
+                      >
+                        <div className="p-5 sm:p-6">
+                          <div className="rounded-2xl bg-white">
                               <div className="rounded-[calc(1rem-0.25rem)] bg-white px-3.5 py-3.5 sm:px-4">
                                 <p className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-slate-900/[0.08] bg-slate-50 px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-ink-3">
                                   <span aria-hidden="true" className="h-1 w-1 rounded-full bg-blue-600" />
@@ -911,12 +912,12 @@ export default function SessionsTable({
                                       Identity
                                     </div>
                                     {title && (
-                                      <div className="mt-1.5 truncate text-sm font-semibold text-slate-900" title={title}>
+                                      <div className="mt-1.5 break-words text-sm font-semibold text-slate-900">
                                         {title}
                                       </div>
                                     )}
                                     <div className="mt-1.5 flex items-center gap-1.5">
-                                      <code className="tnum min-w-0 flex-1 truncate rounded-lg border border-slate-900/[0.08] bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-700" title={r.session_id}>
+                                      <code className="tnum min-w-0 flex-1 break-all rounded-lg border border-slate-900/[0.08] bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-700">
                                         {r.session_id}
                                       </code>
                                       <button
@@ -957,7 +958,7 @@ export default function SessionsTable({
                                     </div>
                                     {!!r.workspace_key && (
                                       <div className="mt-2 flex items-center gap-1.5">
-                                        <code className="min-w-0 flex-1 truncate rounded-lg border border-slate-900/[0.08] bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-500" title={r.workspace_key}>
+                                        <code className="min-w-0 flex-1 break-all rounded-lg border border-slate-900/[0.08] bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-500">
                                           {r.workspace_key}
                                         </code>
                                         <button
@@ -999,13 +1000,13 @@ export default function SessionsTable({
                                     <div className="mt-1.5 space-y-1 text-[11px]">
                                       <div className="flex items-baseline justify-between gap-2">
                                         <span className="shrink-0 text-ink-3">Started</span>
-                                        <span className="tnum min-w-0 truncate font-mono text-slate-700" title={fmtFull(r.first_seen)}>
+                                        <span className="tnum min-w-0 truncate font-mono text-slate-700">
                                           {fmtFull(r.first_seen)}
                                         </span>
                                       </div>
                                       <div className="flex items-baseline justify-between gap-2">
                                         <span className="shrink-0 text-ink-3">Last active</span>
-                                        <span className="tnum min-w-0 truncate font-mono text-slate-700" title={fmtFull(r.last_seen)}>
+                                        <span className="tnum min-w-0 truncate font-mono text-slate-700">
                                           {fmtFull(r.last_seen)}
                                         </span>
                                       </div>
@@ -1030,8 +1031,7 @@ export default function SessionsTable({
                                         (m) => (
                                           <span
                                             key={m}
-                                            className="max-w-48 truncate rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600"
-                                            title={m}
+                                            className="break-words rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600"
                                           >
                                             {m}
                                           </span>
@@ -1052,11 +1052,11 @@ export default function SessionsTable({
                                   </motion.div>
                                 </div>
                               </div>
-                            </motion.div>
-                          </td>
-                        </tr>
-                      )}
-                    </AnimatePresence>
+                          </div>
+                        </div>
+                      </ExpandableModal>,
+                      document.body,
+                    )}
                   </Fragment>
                 );
               })}

@@ -657,7 +657,6 @@ export default function Heatmap({ days, contextDays }: { days: DailyDTO[]; conte
                         height: cellSize,
                         borderRadius: cellSize >= 24 ? 6 : cellSize >= 16 ? 4 : 3,
                       }}
-                      title={`${fmtDayLabel(cell.date, true)} · ${fmtTokens(cell.tokens)} tokens · ${fmtCost(cell.cost)}`}
                       aria-label={`${fmtDayLabel(cell.date, true)}: ${fmtTokens(cell.tokens)} tokens, ${fmtCost(cell.cost)}, ${cell.messages.toLocaleString()} messages`}
                       aria-pressed={scopedDay === cell.date}
                       aria-current={cell.date === todayIso ? "date" : undefined}
@@ -698,10 +697,7 @@ export default function Heatmap({ days, contextDays }: { days: DailyDTO[]; conte
       <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[#F0EDEF] pt-3">
         <div className="min-w-0 rounded-xl border border-[#E4E1E8]/70 bg-[#F6F3F5] p-2.5">
           <span className="block font-sans text-[10px] text-ink-3">Peak coding day</span>
-          <span
-            className="tnum mt-0.5 block truncate font-mono text-[13px] font-semibold text-[#1b1b1d]"
-            title={stats.peak ? `${peakLabel} · ${peakValue}` : "—"}
-          >
+          <span className="tnum mt-0.5 block truncate font-mono text-[13px] font-semibold text-[#1b1b1d]">
             {stats.peak ? `${peakLabel} · ${peakValue}` : "—"}
           </span>
         </div>

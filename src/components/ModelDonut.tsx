@@ -6,6 +6,7 @@ import type { ModelRowDTO } from "../lib/tauri";
 import { fmtCost, fmtCostPrecise, fmtPct, fmtTokens } from "../lib/format";
 import { getClientVisual } from "../lib/client-color";
 import { cn } from "../lib/cn";
+import TooltipCard from "./TooltipCard";
 
 /** Phosphor, amber, teal, rose, fog, slate. No purple or blue, by design. */
 const PALETTE = ["#35D99A", "#E8A33D", "#4CC9C0", "#E26D7E", "#C2C8D1", "#5F6570"];
@@ -168,7 +169,6 @@ function DonutPanel({
               <li
                 key={`${s.client}:${s.id}`}
                 className="flex items-start gap-2 overflow-hidden py-1.5 text-[11px]"
-                title={s.full}
               >
                 <span
                   className="mt-[3px] h-2.5 w-1 shrink-0 rounded-full"
@@ -177,15 +177,19 @@ function DonutPanel({
                 {visual ? (
                   <span
                     className={cn("mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full", visual.dot)}
-                    title={visual.label}
                   />
                 ) : (
                   <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
                 )}
                 {/* Middle-elided only when absurdly long; the tail ("-free") always survives. */}
-                <span className="min-w-0 flex-1 break-words font-sans text-[#414755]" title={s.full}>
-                  {elideMiddle(s.name, NAME_MAX)}
-                </span>
+                <TooltipCard
+                  content={<span className="break-words">{s.full}</span>}
+                  containerClassName="block min-w-0 flex-1"
+                >
+                  <span className="block break-words font-sans text-[#414755]">
+                    {elideMiddle(s.name, NAME_MAX)}
+                  </span>
+                </TooltipCard>
                 <span className="tnum min-w-[6ch] shrink-0 text-right font-mono text-ink-3">
                   {fmtPct(share)}
                 </span>
@@ -228,7 +232,6 @@ function RankedRows({
         return (
           <motion.li
             key={`${m.client}:${m.model}`}
-            title={`${m.model} (${m.client})`}
             initial={reduceMotion ? false : { opacity: 0, y: 8 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -244,12 +247,18 @@ function RankedRows({
                 style={{ background: color }}
                 aria-hidden
               />
-              <span
-                className="min-w-0 flex-1 break-words font-sans text-[12px] font-semibold text-[#1b1b1d]"
-                title={`${m.model} (${m.client})`}
+              <TooltipCard
+                content={
+                  <span className="break-words">
+                    {m.model} ({m.client})
+                  </span>
+                }
+                containerClassName="block min-w-0 flex-1"
               >
-                {elideMiddle(m.model, NAME_MAX)}
-              </span>
+                <span className="block break-words font-sans text-[12px] font-semibold text-[#1b1b1d]">
+                  {elideMiddle(m.model, NAME_MAX)}
+                </span>
+              </TooltipCard>
               <span className="hidden max-w-[7rem] shrink-0 truncate rounded bg-[#F6F3F5] px-1.5 py-0.5 font-sans text-[10px] text-[#626267] sm:inline">
                 {visual.label}
               </span>

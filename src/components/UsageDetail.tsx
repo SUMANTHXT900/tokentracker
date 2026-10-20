@@ -640,32 +640,45 @@ function ClientSplit({
                       style={{ backgroundColor: v.hex }}
                       aria-hidden="true"
                     />
-                    <span className="truncate text-[13px] font-medium text-ink" title={v.label}>
-                      {v.label}
-                    </span>
+                    <TooltipCard content={v.label}>
+                      <span className="truncate text-[13px] font-medium text-ink">
+                        {v.label}
+                      </span>
+                    </TooltipCard>
                   </span>
                   <span className="tnum shrink-0 font-mono text-[12px] font-semibold text-ink">
-                    {fmtTokens(r.tokens)}
+                    <TooltipCard content={`${r.tokens.toLocaleString()} tokens`}>
+                      <span>{fmtTokens(r.tokens)}</span>
+                    </TooltipCard>
                   </span>
                 </div>
-                <div
-                  className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-tray-deep"
-                  role="img"
-                  aria-label={`${v.label} holds ${fmtPct(share)} of period tokens`}
-                  title={`${fmtPct(share)} share`}
-                >
-                  <span
-                    className="block h-full w-full origin-left rounded-full transition-transform motion-reduce:transition-none"
-                    style={{
-                      backgroundColor: v.hex,
-                      transform: `scaleX(${r.tokens > 0 ? Math.max(share, 0.02) : 0})`,
-                    }}
-                  />
-                </div>
+                <TooltipCard content={`${fmtPct(share)} share`}>
+                  <div
+                    className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-tray-deep"
+                    role="img"
+                    aria-label={`${v.label} holds ${fmtPct(share)} of period tokens`}
+                  >
+                    <span
+                      className="block h-full w-full origin-left rounded-full transition-transform motion-reduce:transition-none"
+                      style={{
+                        backgroundColor: v.hex,
+                        transform: `scaleX(${r.tokens > 0 ? Math.max(share, 0.02) : 0})`,
+                      }}
+                    />
+                  </div>
+                </TooltipCard>
                 <p className="tnum mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-ink-3">
                   <span>{fmtPct(share)} of tokens</span>
                   <span>{r.sessions.toLocaleString()} session{r.sessions === 1 ? "" : "s"}</span>
-                  <span>{r.cost <= 0 && r.tokens > 0 ? "Free" : fmtCostPrecise(r.cost)}</span>
+                  <TooltipCard
+                    content={
+                      r.cost <= 0 && r.tokens > 0
+                        ? "No metered cost in the selected range"
+                        : `Exact: ${fmtCostPrecise(r.cost)}`
+                    }
+                  >
+                    <span>{r.cost <= 0 && r.tokens > 0 ? "Free" : fmtCostPrecise(r.cost)}</span>
+                  </TooltipCard>
                 </p>
               </li>
             );

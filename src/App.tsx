@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import {
   ArrowsClockwise,
@@ -50,6 +51,8 @@ import DailyChart from "./components/DailyChart";
 import ModelDonut from "./components/ModelDonut";
 import Heatmap from "./components/Heatmap";
 import SessionsTable from "./components/SessionsTable";
+import ExpandableModal from "./components/ExpandableModal";
+import TooltipCard from "./components/TooltipCard";
 import DateRangePicker from "./components/DateRangePicker";
 import ClientFilterDropdown from "./components/ClientFilterDropdown";
 import type { ClientStat } from "./components/ClientFilterDropdown";
@@ -59,6 +62,7 @@ import SessionShareModal from "./components/SessionShareModal";
 import Titlebar from "./components/Titlebar";
 import PngCards from "./components/PngCards";
 import UsageDetail from "./components/UsageDetail";
+import { LoaderFive, LoaderThree } from "./components/Loaders";
 import { fmtBytes, useUpdater, UpdateToasts } from "./updater";
 
 type NavIcon = typeof SquaresFour;
@@ -226,14 +230,19 @@ function BootOverlay() {
           </span>
           <div>
             <p className="font-display text-lg font-semibold tracking-tight text-ink">TokenTracker</p>
-            <p className="tnum mt-1 font-mono text-[11px] text-ink-3">
-              {stage === 0
-                ? "Reading local logs…"
-                : stage === 1
-                  ? "Still reading — large log history…"
-                  : "Taking longer than usual — retrying quietly…"}
-            </p>
+            <div className="tnum mt-1 font-mono text-[11px] text-ink-3">
+              <LoaderFive
+                text={
+                  stage === 0
+                    ? "Reading local logs…"
+                    : stage === 1
+                      ? "Still reading — large log history…"
+                      : "Taking longer than usual — retrying quietly…"
+                }
+              />
+            </div>
           </div>
+          <LoaderThree size={56} />
           <div
             className="h-1 w-44 overflow-hidden rounded-full bg-tray-deep"
             aria-hidden
@@ -623,8 +632,10 @@ export default function App() {
       {/* ── Cupertino telemetry rail (fixed chrome) ─────────────────────── */}
       <div
         className={cn(
-          "sticky top-10 z-30 h-[calc(100dvh-2.5rem)] shrink-0 p-3 pr-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-          railExpanded ? "w-[268px]" : "w-[88px]",
+          "relative sticky top-10 z-30 h-[calc(100dvh-2.5rem)] shrink-0 p-3 pr-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          // Layout width follows the pinned state only. Hover expansion
+          // overlays instead of shoving content (Aceternity sidebar feel).
+          !sidebarCollapsed ? "w-[268px]" : "w-[88px]",
         )}
         onMouseEnter={() => {
           if (sidebarCollapsed) setRailHover(true);
@@ -637,7 +648,10 @@ export default function App() {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setRailHover(false);
         }}
       >
-      <aside aria-label="Primary" className="flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-hairline bg-card/90 p-2 shadow-[0_24px_60px_-32px_rgba(16,24,40,0.28)] backdrop-blur-xl">
+      <aside aria-label="Primary" className={cn(
+        "flex h-full flex-col overflow-hidden rounded-[1.75rem] border border-hairline bg-card/90 p-2 shadow-[0_24px_60px_-32px_rgba(16,24,40,0.28)] backdrop-blur-xl",
+        sidebarCollapsed && railHover && "absolute bottom-3 left-3 top-3 z-50 h-auto w-[244px] shadow-[0_32px_80px_-24px_rgba(16,24,40,0.45)]",
+      )}>
         {/* Brand medallion — light instrument plate */}
         <div className="rounded-[1.25rem] border border-hairline bg-tray p-1.5">
         <div className={cn("flex items-center gap-2.5 rounded-[0.9rem] border border-hairline bg-card px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]", !railExpanded && "justify-center gap-0 px-0")}>
@@ -1721,19 +1735,20 @@ function ProjectsView({
                     </td>
                     <td className="min-w-[140px] max-w-[240px] px-2.5 py-2.5">
                       <div className="min-w-0">
-                        <p
-                          className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-on-surface"
-                          title={p.workspace_label}
-                        >
+                        <p className="line-clamp-2 break-words text-[13px] font-semibold leading-snug text-on-surface">
                           {p.workspace_label}
                         </p>
                         <div className="mt-0.5 flex min-w-0 items-center gap-1">
-                          <p
-                            className="tnum min-w-0 flex-1 truncate font-mono text-[11px] leading-relaxed text-on-surface-variant"
-                            title={p.workspace_key}
+                          <TooltipCard
+                            content={
+                              <span className="break-all">{p.workspace_key}</span>
+                            }
+                            containerClassName="block min-w-0 flex-1"
                           >
-                            {p.workspace_key}
-                          </p>
+                            <p className="tnum truncate font-mono text-[11px] leading-relaxed text-on-surface-variant">
+                              {p.workspace_key}
+                            </p>
+                          </TooltipCard>
                           <button
                             onClick={() => copyPath(p)}
                             title={copied ? "Copied" : "Copy workspace path"}
@@ -1787,41 +1802,45 @@ function ProjectsView({
                     </td>
                     <td className="max-w-[220px] px-2.5 py-2.5">
                       {p.top_model ? (
-                        <span
-                          title={p.top_model}
-                          className="tnum inline-block max-w-full rounded-md border border-outline-variant/30 bg-surface-container-low px-1.5 py-0.5 font-mono text-[11px] leading-snug whitespace-normal break-words text-on-surface-variant"
+                        <TooltipCard
+                          content={<span className="break-words">{p.top_model}</span>}
+                          containerClassName="block max-w-full"
                         >
-                          {p.top_model}
-                        </span>
+                          <span className="tnum inline-block max-w-full rounded-md border border-outline-variant/30 bg-surface-container-low px-1.5 py-0.5 font-mono text-[11px] leading-snug whitespace-normal break-words text-on-surface-variant">
+                            {p.top_model}
+                          </span>
+                        </TooltipCard>
                       ) : (
                         <span className="text-[11px] text-outline">—</span>
                       )}
                     </td>
-                    <td
-                      className="tnum whitespace-nowrap px-2.5 py-2.5 font-mono text-[11px] text-on-surface-variant"
-                      title={
-                        p.last_seen ? new Date(p.last_seen).toLocaleString() : undefined
-                      }
-                    >
-                      {relTime(p.last_seen)}
+                    <td className="tnum whitespace-nowrap px-2.5 py-2.5 font-mono text-[11px] text-on-surface-variant">
+                      <TooltipCard
+                        content={
+                          p.last_seen ? new Date(p.last_seen).toLocaleString() : "—"
+                        }
+                      >
+                        <span>{relTime(p.last_seen)}</span>
+                      </TooltipCard>
                     </td>
                     <td className="px-2.5 py-2.5">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <div
-                          className="h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-surface-container-high"
-                          role="img"
-                          aria-label={`Share ${fmtPct(share)} of workspace tokens`}
-                          title={`Share ${fmtPct(share)}`}
-                        >
+                      <TooltipCard content={`Share ${fmtPct(share)} of workspace tokens`}>
+                        <div className="flex min-w-0 items-center gap-1.5">
                           <div
-                            className="h-full w-full origin-left rounded-full bg-primary transition-transform motion-reduce:transition-none"
-                            style={{ transform: `scaleX(${p.tokens > 0 ? Math.max(share, 0.02) : 0})` }}
-                          />
+                            className="h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-surface-container-high"
+                            role="img"
+                            aria-label={`Share ${fmtPct(share)} of workspace tokens`}
+                          >
+                            <div
+                              className="h-full w-full origin-left rounded-full bg-primary transition-transform motion-reduce:transition-none"
+                              style={{ transform: `scaleX(${p.tokens > 0 ? Math.max(share, 0.02) : 0})` }}
+                            />
+                          </div>
+                          <span className="tnum w-10 shrink-0 whitespace-nowrap font-mono text-[11px] text-on-surface-variant">
+                            {fmtPct(share)}
+                          </span>
                         </div>
-                        <span className="tnum w-10 shrink-0 whitespace-nowrap font-mono text-[11px] text-on-surface-variant">
-                          {fmtPct(share)}
-                        </span>
-                      </div>
+                      </TooltipCard>
                     </td>
                     <td className="tnum whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
                       {p.sessions.toLocaleString()}
@@ -1832,11 +1851,10 @@ function ProjectsView({
                     <td className="tnum whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] font-semibold text-on-surface">
                       {fmtTokens(p.tokens)}
                     </td>
-                    <td
-                      className="tnum whitespace-nowrap px-2 py-2.5 pr-4 text-right font-mono text-[12px] font-medium text-on-surface"
-                      title={`Exact: ${fmtCostPrecise(p.cost)}`}
-                    >
-                      {fmtCostPrecise(p.cost)}
+                    <td className="tnum whitespace-nowrap px-2 py-2.5 pr-4 text-right font-mono text-[12px] font-medium text-on-surface">
+                      <TooltipCard content={`Exact: ${fmtCostPrecise(p.cost)}`}>
+                        <span>{fmtCostPrecise(p.cost)}</span>
+                      </TooltipCard>
                     </td>
                   </tr>
                 );
@@ -1853,6 +1871,69 @@ function ProjectsView({
 /* ───────────────────────── Model telemetry table ────────────────────────── */
 
 type ModelSort = "model" | "client" | "input" | "output" | "cache_read" | "cache_write" | "reasoning" | "tokens" | "cost";
+
+/** Full inspector for one model row, shown in the pop-out modal card. */
+function ModelInspector({ m, shareBase }: { m: ModelRowDTO; shareBase: number }) {
+  const v = getClientVisual(m.client);
+  const hit = m.cache_read / Math.max(1, m.cache_read + m.input);
+  const share = Math.max(0, Math.min(1, m.tokens / shareBase));
+  const buckets: { label: string; value: number; color: string }[] = [
+    { label: "Input", value: m.input, color: "#0070eb" },
+    { label: "Output", value: m.output, color: "#AF52DE" },
+    { label: "Cache read", value: m.cache_read, color: "#E8A33D" },
+    { label: "Cache write", value: m.cache_write, color: "#E26D7E" },
+    { label: "Reasoning", value: m.reasoning, color: "#4CC9C0" },
+  ];
+  return (
+    <div className="p-5 sm:p-6">
+      <p className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-ink-3">
+        Model telemetry
+      </p>
+      <h3 className="mt-2 break-words font-mono text-[16px] font-semibold leading-snug text-on-surface">
+        {m.model}
+      </h3>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/40 bg-surface-container-low px-2 py-0.5 text-[11px] font-medium text-on-surface-variant">
+          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: v.hex }} aria-hidden />
+          {v.label}
+        </span>
+        <span className="font-mono text-[11px] text-on-surface-variant">{m.provider}</span>
+        <span className="tnum font-mono text-[11px] text-outline">
+          {m.messages.toLocaleString()} msgs
+        </span>
+      </div>
+      <div className="mt-4 space-y-2">
+        {buckets.map((b) => (
+          <div key={b.label} className="flex items-center gap-2.5">
+            <span className="w-20 shrink-0 text-[11px] text-ink-2">{b.label}</span>
+            <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-container-high">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${m.tokens > 0 ? Math.max((b.value / m.tokens) * 100, b.value > 0 ? 2 : 0) : 0}%`,
+                  background: b.color,
+                }}
+              />
+            </div>
+            <span className="tnum w-20 shrink-0 text-right font-mono text-[11px] font-medium text-on-surface">
+              {fmtTokens(b.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="tnum mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline pt-3 font-mono text-[11px] text-ink-2">
+        <span>
+          Total <span className="font-semibold text-on-surface">{fmtTokens(m.tokens)}</span>
+        </span>
+        <span>
+          Cost <span className="font-semibold text-on-surface">{fmtCostPrecise(m.cost)}</span>
+        </span>
+        <span>Cache hit {fmtPct(hit)}</span>
+        <span>{fmtPct(share)} of models</span>
+      </div>
+    </div>
+  );
+}
 
 function ModelTelemetryTable({
   models,
@@ -1955,6 +2036,13 @@ function ModelTelemetryTable({
 
   const totalModelTokens = models.reduce((a, m) => a + m.tokens, 0);
   const shareBase = totalModelTokens || 1;
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const modelKey = (m: ModelRowDTO, i: number) => `${m.client}-${m.model}-${m.provider}-${i}`;
+  const activeModel = (() => {
+    if (!selectedModel) return null;
+    const idx = rows.findIndex((m, i) => modelKey(m, i) === selectedModel);
+    return idx >= 0 ? { m: rows[idx], i: idx } : null;
+  })();
 
   return (
     <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container-lowest shadow-[0_1px_3px_rgba(0,0,0,0.02),0_4px_12px_rgba(0,0,0,0.03)]">
@@ -2055,15 +2143,35 @@ function ModelTelemetryTable({
               const v = getClientVisual(m.client);
               const hit = m.cache_read / Math.max(1, m.cache_read + m.input);
               const share = Math.max(0, Math.min(1, m.tokens / shareBase));
+              const key = modelKey(m, i);
               return (
-                <tr key={`${m.client}-${m.model}-${m.provider}-${i}`} className="group transition-colors hover:bg-surface-container-low/70 motion-reduce:transition-none">
+                <tr
+                  key={key}
+                  onClick={() => setSelectedModel(key)}
+                  className="group cursor-pointer transition-colors hover:bg-surface-container-low/70 motion-reduce:transition-none"
+                >
                   <td className="whitespace-nowrap px-2 py-2.5 pl-4 font-mono text-[11px] text-outline transition-colors group-hover:text-on-surface-variant motion-reduce:transition-none">
                     {String(i + 1).padStart(2, "0")}
                   </td>
                   <td className="min-w-[120px] max-w-[180px] px-2.5 py-2.5">
-                    <p className="line-clamp-2 break-words font-mono text-[13px] leading-snug text-on-surface" title={m.model}>
-                      {m.model}
-                    </p>
+                    <TooltipCard
+                      content={<span className="break-words">{m.model}</span>}
+                      containerClassName="block"
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedModel(key);
+                        }}
+                        aria-label={`Open details for ${m.model}`}
+                        className="block max-w-full rounded text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                      >
+                        <span className="line-clamp-2 break-words font-mono text-[13px] leading-snug text-on-surface group-hover:text-primary motion-reduce:transition-none">
+                          {m.model}
+                        </span>
+                      </button>
+                    </TooltipCard>
                     <p
                       className="tnum mt-0.5 truncate font-mono text-[11px] whitespace-nowrap text-outline"
                       title={`${m.messages.toLocaleString()} messages`}
@@ -2084,12 +2192,14 @@ function ModelTelemetryTable({
                         />
                         <span className="truncate">{v.label}</span>
                       </span>
-                      <span
-                        className="min-w-0 flex-1 truncate font-mono text-[11px] text-on-surface-variant"
-                        title={m.provider}
+                      <TooltipCard
+                        content={<span className="break-words">{m.provider}</span>}
+                        containerClassName="block min-w-0 flex-1"
                       >
-                        {m.provider}
-                      </span>
+                        <span className="block truncate font-mono text-[11px] text-on-surface-variant">
+                          {m.provider}
+                        </span>
+                      </TooltipCard>
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
@@ -2101,19 +2211,22 @@ function ModelTelemetryTable({
                   <td className="whitespace-nowrap px-2 py-2.5">
                     <div className="flex min-w-0 items-center justify-end gap-1">
                       <span className="tnum shrink-0 font-mono text-[12px] whitespace-nowrap text-on-surface-variant">{fmtTokens(m.cache_read)}</span>
-                      <span
-                        className={cn(
-                          "tnum whitespace-nowrap rounded-full border px-1.5 py-0.5 font-mono text-[10px]",
-                          hit >= 0.5
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : hit > 0
-                              ? "border-outline-variant/30 bg-surface-container-low text-on-surface-variant"
-                              : "border-outline-variant/20 bg-surface-container-low text-outline",
-                        )}
-                        title={`Cache hit ${fmtPct(hit)} of input + cache read`}
+                      <TooltipCard
+                        content={`Cache hit ${fmtPct(hit)} of input + cache read`}
                       >
-                        {fmtPct(hit)}
-                      </span>
+                        <span
+                          className={cn(
+                            "tnum whitespace-nowrap rounded-full border px-1.5 py-0.5 font-mono text-[10px]",
+                            hit >= 0.5
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : hit > 0
+                                ? "border-outline-variant/30 bg-surface-container-low text-on-surface-variant"
+                                : "border-outline-variant/20 bg-surface-container-low text-outline",
+                          )}
+                        >
+                          {fmtPct(hit)}
+                        </span>
+                      </TooltipCard>
                     </div>
                   </td>
                   <td className="whitespace-nowrap px-2 py-2.5 text-right font-mono text-[12px] text-on-surface-variant">
@@ -2126,29 +2239,40 @@ function ModelTelemetryTable({
                     <span className="tnum font-mono text-[12px] font-semibold whitespace-nowrap text-on-surface">
                       {fmtTokens(m.tokens)}
                     </span>
-                    <span
-                      className="mx-auto mt-1 block h-1 w-12 overflow-hidden rounded-full bg-surface-container-high"
-                      role="img"
-                      aria-label={`Share ${fmtPct(share)} of model tokens`}
-                      title={`Share ${fmtPct(share)}`}
-                    >
+                    <TooltipCard content={`Share ${fmtPct(share)} of model tokens`}>
                       <span
-                        className="block h-full w-full origin-left rounded-full bg-primary transition-transform motion-reduce:transition-none"
-                        style={{ transform: `scaleX(${m.tokens > 0 ? Math.max(share, 0.02) : 0})` }}
-                      />
-                    </span>
+                        className="mx-auto mt-1 block h-1 w-12 overflow-hidden rounded-full bg-surface-container-high"
+                        role="img"
+                        aria-label={`Share ${fmtPct(share)} of model tokens`}
+                      >
+                        <span
+                          className="block h-full w-full origin-left rounded-full bg-primary transition-transform motion-reduce:transition-none"
+                          style={{ transform: `scaleX(${m.tokens > 0 ? Math.max(share, 0.02) : 0})` }}
+                        />
+                      </span>
+                    </TooltipCard>
                   </td>
-                  <td
-                    className="tnum whitespace-nowrap px-2 py-2.5 pr-4 text-right font-mono text-[12px] font-medium text-on-surface"
-                    title={`Exact: ${fmtCostPrecise(m.cost)}`}
-                  >
-                    {fmtCostPrecise(m.cost)}
+                  <td className="tnum whitespace-nowrap px-2 py-2.5 pr-4 text-right font-mono text-[12px] font-medium text-on-surface">
+                    <TooltipCard content={`Exact: ${fmtCostPrecise(m.cost)}`}>
+                      <span>{fmtCostPrecise(m.cost)}</span>
+                    </TooltipCard>
                   </td>
                 </tr>
               );
             })}
           </tbody>
           </table>
+          {createPortal(
+            <ExpandableModal
+              open={activeModel != null}
+              onClose={() => setSelectedModel(null)}
+              label={activeModel ? `Model details for ${activeModel.m.model}` : "Model details"}
+              wide
+            >
+              {activeModel && <ModelInspector m={activeModel.m} shareBase={shareBase} />}
+            </ExpandableModal>,
+            document.body,
+          )}
           </>
       )}
       </div>

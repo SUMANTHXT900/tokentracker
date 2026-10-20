@@ -1,93 +1,224 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { cn } from "../lib/cn";
 
 /**
- * Cursor-following tooltip card.
+ * Cursor-following tooltip card — faithful port of the Aceternity
+ * tooltip-card source (same measurement, spring, touch and click
+ * behavior), adapted to this repo: `@/lib/utils` → `../lib/cn`,
+ * light-only tokens (the app is light-only), plus keyboard support the
+ * original lacks (focus to open, Escape/scroll to dismiss, role=tooltip).
  *
- * Hand-vendored equivalent of the Aceternity tooltip-card pattern, built on
- * deps we already ship (`motion/react` + Tailwind) instead of pulling the
- * shadcn registry into this Vite + Tauri repo. Shows `content` in a small
- * card pinned near the pointer while hovering or keyboard-focusing the
- * trigger child. Used on truncated table cells (model ids, paths) so the
- * full value is one hover away instead of hidden behind `truncate`.
+ * Use everywhere a truncated cell or data value previously relied on the
+ * native `title=` black tooltip.
  */
-export default function TooltipCard({
+export const Tooltip = ({
   content,
   children,
   containerClassName,
 }: {
-  content: React.ReactNode;
+  content: string | React.ReactNode;
   children: React.ReactNode;
   containerClassName?: string;
-}) {
-  const [visible, setVisible] = useState(false);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const rootRef = useRef<HTMLSpanElement>(null);
-  const tipId = useId();
-  const reduceMotion = useReducedMotion() ?? false;
+}) => {
+  const [isVisible, setIsVisible] = useState(false);
+  const [mouse, setMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [height, setHeight] = useState(0);
+  const [position, setPosition] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
+  const contentRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tipId = useRef(`tt-${Math.random().toString(36).slice(2, 9)}`);
 
-  // Dismiss on Escape and on scroll (a scrolling page orphans a fixed tip).
   useEffect(() => {
-    if (!visible) return;
+    if (isVisible && contentRef.current) {
+      setHeight(contentRef.current.scrollHeight);
+    }
+  }, [isVisible, content]);
+
+  // Keyboard + scroll dismissal (the registry source has neither).
+  useEffect(() => {
+    if (!isVisible) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setVisible(false);
+      if (e.key === "Escape") setIsVisible(false);
     };
-    const onScroll = () => setVisible(false);
+    const onScroll = () => setIsVisible(false);
     document.addEventListener("keydown", onKey, true);
     document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("scroll", onScroll, true);
     };
-  }, [visible]);
+  }, [isVisible]);
+
+  const calculatePosition = (mouseX: number, mouseY: number) => {
+    if (!contentRef.current || !containerRef.current)
+      return { x: mouseX + 12, y: mouseY + 12 };
+
+    const container = containerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Get tooltip dimensions
+    const tooltipWidth = 240; // min-w-[15rem] = 240px
+    const tooltipHeight = contentRef.current.scrollHeight;
+
+    // Calculate absolute position relative to viewport
+    const absoluteX = containerRect.left + mouseX;
+    const absoluteY = containerRect.top + mouseY;
+
+    let finalX = mouseX + 12;
+    let finalY = mouseY + 12;
+
+    // Check if tooltip goes beyond right edge
+    if (absoluteX + 12 + tooltipWidth > viewportWidth) {
+      finalX = mouseX - tooltipWidth - 12;
+    }
+
+    // Check if tooltip goes beyond left edge
+    if (absoluteX + finalX < 0) {
+      finalX = -containerRect.left + 12;
+    }
+
+    // Check if tooltip goes beyond bottom edge
+    if (absoluteY + 12 + tooltipHeight > viewportHeight) {
+      finalY = mouseY - tooltipHeight - 12;
+    }
+
+    // Check if tooltip goes beyond top edge
+    if (absoluteY + finalY < 0) {
+      finalY = -containerRect.top + 12;
+    }
+
+    return { x: finalX, y: finalY };
+  };
+
+  const updateMousePosition = (mouseX: number, mouseY: number) => {
+    setMouse({ x: mouseX, y: mouseY });
+    const newPosition = calculatePosition(mouseX, mouseY);
+    setPosition(newPosition);
+  };
+
+  const handleMouseEnter = (e: React.MouseEvent<HTMLDivElement>) => {
+    setIsVisible(true);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    updateMousePosition(mouseX, mouseY);
+  };
+
+  const handleMouseLeave = () => {
+    setMouse({ x: 0, y: 0 });
+    setPosition({ x: 0, y: 0 });
+    setIsVisible(false);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isVisible) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    updateMousePosition(mouseX, mouseY);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const touch = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = touch.clientX - rect.left;
+    const mouseY = touch.clientY - rect.top;
+    updateMousePosition(mouseX, mouseY);
+    setIsVisible(true);
+  };
+
+  const handleTouchEnd = () => {
+    // Delay hiding to allow for tap interaction
+    setTimeout(() => {
+      setIsVisible(false);
+      setMouse({ x: 0, y: 0 });
+      setPosition({ x: 0, y: 0 });
+    }, 2000);
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Toggle visibility on click for devices without hover.
+    if (window.matchMedia("(hover: none)").matches) {
+      e.preventDefault();
+      if (isVisible) {
+        setIsVisible(false);
+        setMouse({ x: 0, y: 0 });
+        setPosition({ x: 0, y: 0 });
+      } else {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        updateMousePosition(mouseX, mouseY);
+        setIsVisible(true);
+      }
+    }
+  };
+
+  // Update position when tooltip becomes visible or content changes
+  useEffect(() => {
+    if (isVisible && contentRef.current) {
+      const newPosition = calculatePosition(mouse.x, mouse.y);
+      setPosition(newPosition);
+    }
+  }, [isVisible, height, mouse.x, mouse.y]);
 
   if (!content) {
     return <span className={containerClassName}>{children}</span>;
   }
 
-  const OFFSET = 14;
-  const TIP_W = 300;
-  const TIP_H = 120;
-  const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-  const left = Math.min(Math.max(8, pos.x + OFFSET), Math.max(8, vw - TIP_W - 8));
-  const flipUp = pos.y + OFFSET + TIP_H > vh;
-  const top = flipUp ? Math.max(8, pos.y - TIP_H - 10) : pos.y + OFFSET;
-
   return (
-    <span
-      ref={rootRef}
-      className={cn("inline-block min-w-0", containerClassName)}
-      aria-describedby={tipId}
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={() => setVisible(false)}
-      onMouseMove={(e) => setPos({ x: e.clientX, y: e.clientY })}
-      onFocus={() => {
-        const r = rootRef.current?.getBoundingClientRect();
-        if (r) setPos({ x: r.left + r.width / 2, y: r.bottom });
-        setVisible(true);
+    <div
+      ref={containerRef}
+      aria-describedby={tipId.current}
+      className={cn("relative inline-block min-w-0", containerClassName)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onMouseMove={handleMouseMove}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onClick={handleClick}
+      onFocus={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        updateMousePosition(r.width / 2, r.height);
+        setIsVisible(true);
       }}
-      onBlur={() => setVisible(false)}
+      onBlur={handleMouseLeave}
     >
       {children}
       <AnimatePresence>
-        {visible && (
-          <motion.span
-            key="tip"
-            id={tipId}
+        {isVisible && (
+          <motion.div
+            key={String(isVisible)}
             role="tooltip"
-            initial={reduceMotion ? false : { opacity: 0, scale: 0.96, y: flipUp ? 4 : -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97 }}
-            transition={{ duration: 0.16, ease: [0.32, 0.72, 0, 1] }}
-            className="tnum pointer-events-none fixed z-[90] block max-w-[300px] rounded-xl border border-hairline bg-card px-3 py-2 text-[11px] leading-relaxed text-ink shadow-[0_16px_40px_-16px_rgba(16,24,40,0.35)]"
-            style={{ left, top }}
+            id={tipId.current}
+            initial={{ height: 0, opacity: 1 }}
+            animate={{ height, opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              type: "spring",
+              stiffness: 200,
+              damping: 20,
+            }}
+            className="tnum pointer-events-none absolute z-[90] min-w-[15rem] max-w-[300px] overflow-hidden rounded-xl border border-hairline bg-card text-[11px] leading-relaxed text-ink shadow-[0_16px_40px_-16px_rgba(16,24,40,0.35)]"
+            style={{
+              top: position.y,
+              left: position.x,
+            }}
           >
-            {content}
-          </motion.span>
+            <div ref={contentRef} className="break-words p-2.5">
+              {content}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
-    </span>
+    </div>
   );
-}
+};
+
+export default Tooltip;
