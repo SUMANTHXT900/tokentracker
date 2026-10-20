@@ -162,6 +162,7 @@ export default function KpiCards({
 
   const totalIn = models.reduce((a, m) => a + (m?.input ?? 0) + (m?.cache_read ?? 0), 0);
   const totalOut = models.reduce((a, m) => a + (m?.output ?? 0), 0);
+  const totalReasoning = models.reduce((a, m) => a + (m?.reasoning ?? 0), 0);
 
   const realProjectsCount = projects.filter(
     (p) =>
@@ -266,6 +267,7 @@ export default function KpiCards({
             <span className="font-sans text-[#414755]">Cache Hit Rate</span>
             <span className="font-semibold text-[#006b27]">{fmtTokens(cacheRead)} cached · {fmtPct(cacheHit)} hit</span>
           </div>
+          <p className="tnum font-mono text-[11px] text-slate-500">Reasoning: {fmtTokens(totalReasoning)}</p>
           <p className="tnum font-mono text-[10px] text-ink-3">{msgLabel} messages</p>
         </Card>
 

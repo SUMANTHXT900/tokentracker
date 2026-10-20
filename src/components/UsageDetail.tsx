@@ -970,6 +970,7 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
   const periodPlainInput = periodModels.reduce((a, m) => a + (m?.input ?? 0), 0);
   const periodIn = periodCacheRead + periodPlainInput;
   const periodOut = periodModels.reduce((a, m) => a + (m?.output ?? 0), 0);
+  const periodReasoning = periodModels.reduce((a, m) => a + (m?.reasoning ?? 0), 0);
   const periodCacheDenom = periodCacheRead + periodPlainInput;
   const periodCacheHit = periodCacheDenom > 0 ? periodCacheRead / periodCacheDenom : 0;
 
@@ -1145,6 +1146,7 @@ export default function UsageDetail({ clients }: { clients: string[] }) {
             <span>
               {fmtTokens(periodCacheRead)} cached · {fmtPct(periodCacheHit)} hit
             </span>
+            <span>· Reasoning: {fmtTokens(periodReasoning)}</span>
           </div>
         )}
 

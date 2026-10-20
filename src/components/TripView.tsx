@@ -723,11 +723,11 @@ export default function TripView({
                     aria-label="Token stream breakdown"
                   >
                     <span
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#0070eb]/25 bg-[#0070eb]/[0.06] px-2.5 py-1 font-mono text-xs text-[#0058bc]"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#0070eb]/25 bg-[#0070eb]/[0.06] px-3 py-1.5 font-mono text-sm text-[#0058bc]"
                       title={`${fullNum(safeNumber(inputTokens))} input tokens this session`}
                     >
-                      <ArrowDown
-                        size={14}
+                      <ArrowUp
+                        size={16}
                         weight="light"
                         className="text-[#0070eb]"
                         aria-hidden="true"
@@ -738,11 +738,11 @@ export default function TripView({
                       </strong>
                     </span>
                     <span
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#D55E00]/25 bg-[#D55E00]/[0.06] px-2.5 py-1 font-mono text-xs text-[#A64A00]"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#D55E00]/25 bg-[#D55E00]/[0.06] px-3 py-1.5 font-mono text-sm text-[#A64A00]"
                       title={`${fullNum(safeNumber(outputTokens))} output tokens this session`}
                     >
-                      <ArrowUp
-                        size={14}
+                      <ArrowDown
+                        size={16}
                         weight="light"
                         className="text-[#D55E00]"
                         aria-hidden="true"
@@ -753,11 +753,11 @@ export default function TripView({
                       </strong>
                     </span>
                     <span
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#E69F00]/30 bg-[#E69F00]/[0.10] px-2.5 py-1 font-mono text-xs text-[#8A5A00]"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#E69F00]/30 bg-[#E69F00]/[0.10] px-3 py-1.5 font-mono text-sm text-[#8A5A00]"
                       title={`${fullNum(safeNumber(cacheReadTokens))} cache read + ${fullNum(safeNumber(cacheWriteTokens))} cache write tokens this session`}
                     >
                       <Stack
-                        size={14}
+                        size={16}
                         weight="light"
                         className="text-[#E69F00]"
                         aria-hidden="true"
@@ -769,11 +769,11 @@ export default function TripView({
                     </span>
                     {hasReasoning && (
                       <span
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1 font-mono text-xs text-[#475569]"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1.5 font-mono text-sm text-[#475569]"
                         title={`${fullNum(safeNumber(reasoningTokens))} reasoning tokens this session`}
                       >
                         <Brain
-                          size={14}
+                          size={16}
                           weight="light"
                           className="text-slate-500"
                           aria-hidden="true"
